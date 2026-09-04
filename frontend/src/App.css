@@ -172,22 +172,35 @@ button {
 
 .section-heading {
   display: flex;
+  align-items: flex-end;
   justify-content: space-between;
-  align-items: center;
-  margin: 34px 0 16px;
+  gap: 20px;
+  margin-bottom: 12px;
 }
 
 .section-heading h2 {
   margin: 0;
-  font-size: 20px;
-  letter-spacing: -0.3px;
+  color: #29252f;
+  font-size: 17px;
+  font-weight: 600;
 }
+
 
 .section-heading span {
   color: #8b868d;
   font-size: 13px;
 }
 
+.section-heading p {
+  margin: 4px 0 0;
+  color: #77727c;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.section-heading p {
+  white-space: nowrap;
+}
 
 /* =========================
    Watchlist
@@ -852,4 +865,237 @@ button {
 .refresh-all-button:disabled {
   opacity: 0.55;
   cursor: wait;
+}
+
+/* =========================
+   Dashboard
+   ========================= */
+
+.dashboard-section {
+  margin-bottom: 22px;
+}
+
+.market-overview {
+  display: grid;
+  grid-template-columns:
+    repeat(4, 1fr);
+  gap: 10px;
+}
+
+.market-card {
+  padding: 12px;
+  border: 1px solid #e8e3eb;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.market-name {
+  display: block;
+  margin-bottom: 5px;
+  color: #858087;
+  font-size: 10px;
+}
+
+.market-card strong {
+  display: block;
+  color: #29252f;
+  font-size: 16px;
+}
+
+.market-change {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.market-change.positive {
+  color: #397052;
+}
+
+.market-change.negative {
+  color: #b42318;
+}
+
+.market-change.neutral {
+  color: #9993a1;
+}
+
+.market-overview {
+  grid-template-columns:
+    repeat(2, 1fr);
+}
+
+.watchlist-summary {
+  grid-template-columns:
+    repeat(2, 1fr);
+}
+
+.summary-item:nth-child(2) {
+  border-right: none;
+}
+
+.summary-item:nth-child(-n + 2) {
+  border-bottom: 1px solid #ebe8ed;
+  padding-bottom: 9px;
+}
+
+.summary-item:nth-child(n + 3) {
+  padding-top: 9px;
+}
+
+.nudge-card {
+  padding: 11px;
+}
+
+/* =========================
+   Today's Nudges
+   ========================= */
+
+.nudge-list {
+  display: grid;
+  gap: 8px;
+}
+
+.nudge-card {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid #ebe6f7;
+  border-radius: 12px;
+  background: #f7f4fc;
+  color: #29252f;
+  text-align: left;
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease;
+}
+
+.nudge-card:hover {
+  background: #f1ecfb;
+  transform: translateY(-1px);
+}
+
+.nudge-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.nudge-main strong {
+  font-size: 14px;
+}
+
+.nudge-main span {
+  font-size: 12px;
+  font-weight: 700;
+  color: #5b4b8e;
+}
+
+.nudge-card p {
+  margin: 5px 0;
+  color: #68636d;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.nudge-card small {
+  color: #9992a1;
+  font-size: 9px;
+}
+
+.nudges-empty {
+  padding: 13px;
+  border: 1px solid #e8ece8;
+  border-radius: 12px;
+  background: #f5f7f5;
+  color: #68716b;
+  font-size: 11px;
+}
+
+
+/* =========================
+   Watchlist Summary
+   ========================= */
+
+.watchlist-summary {
+  display: grid;
+  grid-template-columns:
+    repeat(4, 1fr);
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #ebe8ed;
+  border-radius: 12px;
+  background: #fbfafc;
+}
+
+.summary-item {
+  padding: 6px 10px;
+  border-right: 1px solid #ebe8ed;
+}
+
+.summary-item:last-child {
+  border-right: none;
+}
+
+.summary-item span {
+  display: block;
+  margin-bottom: 4px;
+  color: #9992a1;
+  font-size: 9px;
+}
+
+.summary-item strong {
+  color: #29252f;
+  font-size: 11px;
+}
+
+.summary-positive {
+  color: #397052 !important;
+}
+
+.summary-negative {
+  color: #b42318 !important;
+}
+
+/* =========================
+   Nudge Context
+   ========================= */
+
+.nudge-reason {
+  margin: 5px 0;
+  color: #68636d;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.nudge-context {
+  margin: 5px 0;
+  color: #514373;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.nudge-evidence {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 7px;
+}
+
+.nudge-evidence span {
+  padding: 4px 7px;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #7d7685;
+  font-size: 9px;
+}
+
+.nudge-suggestion {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e8e1f2;
+  color: #5b4b8e;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.45;
 }
