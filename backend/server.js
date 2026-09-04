@@ -6,9 +6,20 @@ dns.setServers(["8.8.8.8"]);
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const webpush = require("web-push");
 
 const WatchlistItem = require("./models/WatchlistItem");
 const PriceSnapshot = require("./models/PriceSnapshot");
+const User = require("./models/User");
+const Alert = require("./models/Alert");
+const PushSubscription = require("./models/PushSubscription");
+const UserViewState = require("./models/UserViewState");
+const SignalEvent = require("./models/SignalEvent");
+const UserPreference = require("./models/UserPreference");
+const UserFeedback = require("./models/UserFeedback");
+
 const { getMarketData } = require("./services/marketData");
 
 const {
@@ -16,86 +27,127 @@ const {
   calculateReturns,
 } = require("./services/signalEngine");
 
-const UserViewState = require("./models/UserViewState");
-const SignalEvent = require("./models/SignalEvent");
-const UserPreference = require("./models/UserPreference");
-const UserFeedback = require("./models/UserFeedback");
-
 const YahooFinance =
   require("yahoo-finance2").default;
 
 const yahooFinance = new YahooFinance();
 
-/* =========================
+/* =========================================================
    App configuration
-   ========================= */
+   ========================================================= */
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+const JWT_SECRET =
+  process.env.JWT_SECRET || "change-this-secret";
+
 const PERSONALIZATION_THRESHOLD = 1;
 
-/* =========================
-   Market context mapping
-   ========================= */
+/* =========================================================
+   Web Push configuration
+   ========================================================= */
+
+if (
+  process.env.VAPID_PUBLIC_KEY &&
+  process.env.VAPID_PRIVATE_KEY &&
+  process.env.VAPID_EMAIL
+) {
+  webpush.setVapidDetails(
+    process.env.VAPID_EMAIL,
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
+
+  console.log("Web Push configured.");
+} else {
+  console.warn(
+    "Web Push keys are missing. Browser notifications are disabled."
+  );
+}
+
+/* =========================================================
+   Market context
+   ========================================================= */
 
 const SECTOR_INDICES = {
   INFY: {
     name: "IT",
     symbol: "^CNXIT",
   },
+
   TCS: {
     name: "IT",
     symbol: "^CNXIT",
   },
+
   WIPRO: {
     name: "IT",
     symbol: "^CNXIT",
   },
+
   HDFCBANK: {
     name: "Banking",
     symbol: "^NSEBANK",
   },
+
   ICICIBANK: {
     name: "Banking",
     symbol: "^NSEBANK",
   },
+
   SBIN: {
     name: "Banking",
     symbol: "^NSEBANK",
   },
+
   AXISBANK: {
     name: "Banking",
     symbol: "^NSEBANK",
   },
+
   RELIANCE: {
     name: "NIFTY 50",
     symbol: "^NSEI",
   },
+
   ITC: {
     name: "NIFTY 50",
     symbol: "^NSEI",
   },
+
   LT: {
     name: "NIFTY 50",
     symbol: "^NSEI",
   },
 };
 
-/* =========================
+/* =========================================================
+   Middleware
+   ========================================================= */
+
+app.use(
+  cors({
+    origin: true,
+  })
+);
+
+app.use(express.json());
+
+/* =========================================================
    Helpers
-   ========================= */
+   ========================================================= */
 
 const calculatePersonalizedScore = (
   signalScore,
   interestWeight
 ) => {
-  const safeSignalScore = Math.max(
+  const score = Math.max(
     0,
     Number(signalScore) || 0
   );
 
-  const safeInterestWeight = Math.max(
+  const weight = Math.max(
     0,
     Math.min(
       1,
@@ -104,14 +156,106 @@ const calculatePersonalizedScore = (
   );
 
   return Number(
-    (
-      safeSignalScore *
-      safeInterestWeight
-    ).toFixed(2)
+    (score * weight).toFixed(2)
   );
 };
 
-const getMarketContext = async (ticker) => {
+const createToken = (user) => {
+  return jwt.sign(
+    {
+      userId: user._id.toString(),
+      email: user.email,
+    },
+    JWT_SECRET,
+    {
+      expiresIn: "7d",
+    }
+  );
+};
+
+const getUserIdFromToken = (req) => {
+  const authorization =
+    req.headers.authorization || "";
+
+  if (!authorization.startsWith("Bearer ")) {
+    return null;
+  }
+
+  const token =
+    authorization.substring(7);
+
+  try {
+    const decoded =
+      jwt.verify(
+        token,
+        JWT_SECRET
+      );
+
+    return decoded.userId;
+  } catch {
+    return null;
+  }
+};
+
+const optionalAuth = (
+  req,
+  res,
+  next
+) => {
+  const userId =
+    getUserIdFromToken(req);
+
+  req.userId = userId;
+  req.isAuthenticated = Boolean(
+    userId
+  );
+
+  next();
+};
+
+const requireAuth = (
+  req,
+  res,
+  next
+) => {
+  const userId =
+    getUserIdFromToken(req);
+
+  if (!userId) {
+    return res.status(401).json({
+      message:
+        "Please log in to continue.",
+    });
+  }
+
+  req.userId = userId;
+  req.isAuthenticated = true;
+
+  next();
+};
+
+const normalizeEmail = (email) => {
+  return String(email || "")
+    .trim()
+    .toLowerCase();
+};
+
+const isValidEmail = (email) => {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+    email
+  );
+};
+
+const isValidPassword = (password) => {
+  return (
+    typeof password === "string" &&
+    password.length >= 8
+  );
+};
+
+const getMarketContext = async (
+  ticker
+) => {
   const context =
     SECTOR_INDICES[ticker] || {
       name: "NIFTY 50",
@@ -124,21 +268,21 @@ const getMarketContext = async (ticker) => {
         context.symbol
       );
 
-    const changePercent =
-      Number(
-        quote.regularMarketChangePercent
-      );
+    const changePercent = Number(
+      quote.regularMarketChangePercent
+    );
 
     return {
       name: context.name,
       symbol: context.symbol,
-      changePercent: Number.isFinite(
-        changePercent
-      )
-        ? Number(
-            changePercent.toFixed(2)
-          )
-        : 0,
+      changePercent:
+        Number.isFinite(
+          changePercent
+        )
+          ? Number(
+              changePercent.toFixed(2)
+            )
+          : 0,
     };
   } catch (error) {
     console.error(
@@ -150,93 +294,487 @@ const getMarketContext = async (ticker) => {
   }
 };
 
-/* =========================
-   Middleware
-   ========================= */
+/* =========================================================
+   Browser push notification helper
+   ========================================================= */
 
-app.use(cors());
-app.use(express.json());
+const sendPushNotification = async (
+  userId,
+  title,
+  message
+) => {
+  if (
+    !process.env.VAPID_PUBLIC_KEY ||
+    !process.env.VAPID_PRIVATE_KEY ||
+    !process.env.VAPID_EMAIL
+  ) {
+    return;
+  }
 
-/* =========================
-   Anonymous user identity
-   ========================= */
+  const subscriptions =
+    await PushSubscription.find({
+      userId,
+    });
 
-app.use((req, res, next) => {
-  req.userId =
-    req.headers["x-user-id"] ||
-    "demo-user";
+  const payload = JSON.stringify({
+    title,
+    body: message,
+    icon: "/nudge-icon.png",
+    badge: "/nudge-icon.png",
+  });
 
-  next();
-});
+  for (const subscription of subscriptions) {
+    try {
+      await webpush.sendNotification(
+        {
+          endpoint:
+            subscription.endpoint,
 
-/* =========================
-   MongoDB connection
-   ========================= */
+          keys: {
+            p256dh:
+              subscription.keys.p256dh,
 
-console.log(
-  "Trying to connect to MongoDB..."
+            auth:
+              subscription.keys.auth,
+          },
+        },
+        payload
+      );
+    } catch (error) {
+      console.error(
+        "Push notification error:",
+        error.statusCode,
+        error.message
+      );
+
+      if (
+        error.statusCode === 404 ||
+        error.statusCode === 410
+      ) {
+        await PushSubscription.deleteOne({
+          _id: subscription._id,
+        });
+      }
+    }
+  }
+};
+
+/* =========================================================
+   Alert checker
+   ========================================================= */
+
+const checkAlerts = async (
+  ticker,
+  price
+) => {
+  if (
+    !Number.isFinite(
+      Number(price)
+    )
+  ) {
+    return;
+  }
+
+  const alerts =
+    await Alert.find({
+      ticker,
+      active: true,
+    });
+
+  for (const alert of alerts) {
+    const target =
+      Number(alert.targetPrice);
+
+    let triggered = false;
+
+    if (
+      alert.condition === "below" &&
+      price <= target
+    ) {
+      triggered = true;
+    }
+
+    if (
+      alert.condition === "above" &&
+      price >= target
+    ) {
+      triggered = true;
+    }
+
+    if (!triggered) {
+      continue;
+    }
+
+    alert.active = false;
+    alert.triggeredAt = new Date();
+
+    await alert.save();
+
+    await sendPushNotification(
+      alert.userId.toString(),
+      `${ticker} price alert`,
+      `${ticker} crossed ${
+        alert.condition === "below"
+          ? "below"
+          : "above"
+      } ₹${target.toLocaleString(
+        "en-IN"
+      )}. Current price: ₹${price.toLocaleString(
+        "en-IN",
+        {
+          maximumFractionDigits: 2,
+        }
+      )}.`
+    );
+  }
+};
+
+/* =========================================================
+   Safe market data
+   ========================================================= */
+
+const getSafeMarketData = async (
+  ticker
+) => {
+  try {
+    const marketData =
+      await getMarketData(ticker);
+
+    await checkAlerts(
+      ticker,
+      marketData.price
+    );
+
+    return {
+      ...marketData,
+      stale: false,
+      unavailable: false,
+    };
+  } catch (error) {
+    console.error(
+      `Live data unavailable for ${ticker}:`,
+      error.message
+    );
+
+    const latestSnapshot =
+      await PriceSnapshot.findOne({
+        ticker,
+      }).sort({
+        capturedAt: -1,
+      });
+
+    if (!latestSnapshot) {
+      return {
+        ticker,
+        price: null,
+        volume: null,
+        changePercent: null,
+        stale: true,
+        unavailable: true,
+      };
+    }
+
+    return {
+      ticker,
+      price:
+        latestSnapshot.price,
+      volume:
+        latestSnapshot.volume,
+      changePercent: null,
+      previousClose: null,
+      capturedAt:
+        latestSnapshot.capturedAt,
+      source:
+        latestSnapshot.source,
+      stale: true,
+      unavailable: false,
+    };
+  }
+};
+
+/* =========================================================
+   Authentication
+   ========================================================= */
+
+app.post(
+  "/api/auth/register",
+  async (req, res) => {
+    try {
+      const email =
+        normalizeEmail(
+          req.body.email
+        );
+
+      const password =
+        req.body.password;
+
+      if (!isValidEmail(email)) {
+        return res.status(400).json({
+          message:
+            "Please enter a valid email address.",
+        });
+      }
+
+      if (!isValidPassword(password)) {
+        return res.status(400).json({
+          message:
+            "Password must contain at least 8 characters.",
+        });
+      }
+
+      const existingUser =
+        await User.findOne({
+          email,
+        });
+
+      if (existingUser) {
+        return res.status(409).json({
+          message:
+            "An account with this email already exists.",
+        });
+      }
+
+      const passwordHash =
+        await bcrypt.hash(
+          password,
+          12
+        );
+
+      const user =
+        await User.create({
+          email,
+          passwordHash,
+        });
+
+      const token =
+        createToken(user);
+
+      return res.status(201).json({
+        token,
+        user: {
+          id: user._id,
+          email: user.email,
+        },
+      });
+    } catch (error) {
+      console.error(
+        "Registration error:",
+        error.message
+      );
+
+      return res.status(500).json({
+        message:
+          "Could not create your account.",
+      });
+    }
+  }
 );
 
-mongoose
-  .connect(process.env.MONGO_URI, {
-    serverSelectionTimeoutMS: 10000,
-  })
-  .then(async () => {
-    console.log(
-      "MongoDB connected successfully!"
-    );
+app.post(
+  "/api/auth/login",
+  async (req, res) => {
+    try {
+      const email =
+        normalizeEmail(
+          req.body.email
+        );
 
-    const {
-      runMarketIngestion,
-      bootstrapHistoricalData,
-    } = require("./jobs/marketIngestion");
+      const password =
+        req.body.password;
 
-    await bootstrapHistoricalData();
-    runMarketIngestion();
-  })
-  .catch((error) => {
-    console.error(
-      "MongoDB connection failed:"
-    );
+      const user =
+        await User.findOne({
+          email,
+        });
 
-    console.error(error.message);
-  });
+      if (!user) {
+        return res.status(401).json({
+          message:
+            "Incorrect email or password.",
+        });
+      }
 
-/* =========================
-   Health check
-   ========================= */
+      const passwordMatches =
+        await bcrypt.compare(
+          password,
+          user.passwordHash
+        );
 
-app.get("/", (req, res) => {
-  res.json({
-    message:
-      "Groww Code backend is running!",
-    database: "MongoDB",
-  });
-});
+      if (!passwordMatches) {
+        return res.status(401).json({
+          message:
+            "Incorrect email or password.",
+        });
+      }
 
-/* =========================
+      const token =
+        createToken(user);
+
+      return res.json({
+        token,
+        user: {
+          id: user._id,
+          email: user.email,
+        },
+      });
+    } catch (error) {
+      console.error(
+        "Login error:",
+        error.message
+      );
+
+      return res.status(500).json({
+        message:
+          "Could not log you in.",
+      });
+    }
+  }
+);
+
+app.get(
+  "/api/auth/me",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const user =
+        await User.findById(
+          req.userId
+        ).select(
+          "_id email createdAt"
+        );
+
+      if (!user) {
+        return res.status(404).json({
+          message:
+            "User account not found.",
+        });
+      }
+
+      return res.json({
+        user: {
+          id: user._id,
+          email: user.email,
+          createdAt:
+            user.createdAt,
+        },
+      });
+    } catch (error) {
+      console.error(
+        "Auth check error:",
+        error.message
+      );
+
+      return res.status(500).json({
+        message:
+          "Could not verify your session.",
+      });
+    }
+  }
+);
+
+/* =========================================================
+   Guest watchlist migration
+   ========================================================= */
+
+app.post(
+  "/api/auth/migrate-guest",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const guestId =
+        String(
+          req.body.guestId || ""
+        ).trim();
+
+      if (!guestId) {
+        return res.json({
+          migrated: 0,
+        });
+      }
+
+      const guestItems =
+        await WatchlistItem.find({
+          userId: guestId,
+        });
+
+      let migrated = 0;
+
+      for (const item of guestItems) {
+        const exists =
+          await WatchlistItem.findOne({
+            userId:
+              req.userId,
+            ticker:
+              item.ticker,
+          });
+
+        if (!exists) {
+          await WatchlistItem.create({
+            userId:
+              req.userId,
+            ticker:
+              item.ticker,
+          });
+
+          migrated++;
+        }
+      }
+
+      await WatchlistItem.deleteMany({
+        userId: guestId,
+      });
+
+      return res.json({
+        migrated,
+      });
+    } catch (error) {
+      console.error(
+        "Guest migration error:",
+        error.message
+      );
+
+      return res.status(500).json({
+        message:
+          "Could not save your guest watchlist.",
+      });
+    }
+  }
+);
+
+/* =========================================================
    Watchlist
-   ========================= */
+   ========================================================= */
 
 app.get(
   "/api/watchlist",
+  optionalAuth,
   async (req, res) => {
     try {
+      const guestId =
+        req.headers["x-guest-id"];
+
+      const userId =
+        req.userId ||
+        guestId ||
+        "demo-user";
+
       const watchlist =
         await WatchlistItem.find({
-          userId: req.userId,
+          userId,
+        }).sort({
+          createdAt: 1,
         });
 
-      res.json(watchlist);
+      return res.json(watchlist);
     } catch (error) {
       console.error(
         "Fetch watchlist error:",
         error.message
       );
 
-      res.status(500).json({
+      return res.status(500).json({
         message:
-          "Failed to fetch watchlist",
+          "Failed to fetch watchlist.",
       });
     }
   }
@@ -244,80 +782,64 @@ app.get(
 
 app.post(
   "/api/watchlist",
+  optionalAuth,
   async (req, res) => {
     try {
-      const userId = req.userId;
-
       const ticker =
-        req.body.ticker
-          ?.trim()
+        String(
+          req.body.ticker || ""
+        )
+          .trim()
           .toUpperCase();
 
-      if (!ticker) {
-        return res.status(400).json({
-          message:
-            "Ticker is required",
-        });
-      }
+      const guestId =
+        req.headers["x-guest-id"];
+
+      const userId =
+        req.userId ||
+        guestId ||
+        "demo-user";
 
       if (
-        !/^[A-Z0-9.-]{1,20}$/.test(
+        !/^[A-Z0-9.-]{1,15}$/.test(
           ticker
         )
       ) {
         return res.status(400).json({
           message:
-            "Invalid ticker format",
+            "Invalid ticker symbol.",
         });
       }
 
-      /* Verify that the stock exists */
-
-      try {
-        await getMarketData(ticker);
-      } catch (error) {
-        return res.status(400).json({
-          message:
-            `Stock "${ticker}" was not found.`,
-        });
-      }
-
-      /* Prevent duplicates */
-
-      const existingStock =
+      const existing =
         await WatchlistItem.findOne({
           userId,
           ticker,
         });
 
-      if (existingStock) {
+      if (existing) {
         return res.status(409).json({
           message:
-            "Stock already exists in watchlist",
+            "Stock is already in your watchlist.",
         });
       }
 
-      const newStock =
-        new WatchlistItem({
+      const item =
+        await WatchlistItem.create({
           userId,
           ticker,
         });
 
-      const savedStock =
-        await newStock.save();
-
-      res.status(201).json(
-        savedStock
-      );
+      return res.status(201).json(item);
     } catch (error) {
       console.error(
-        "Add stock error:",
+        "Add watchlist error:",
         error.message
       );
 
-      res.status(500).json({
+      return res.status(500).json({
         message:
-          "Failed to add stock",
+          "Could not add stock.",
       });
     }
   }
@@ -325,26 +847,33 @@ app.post(
 
 app.delete(
   "/api/watchlist/:id",
+  optionalAuth,
   async (req, res) => {
     try {
+      const guestId =
+        req.headers["x-guest-id"];
+
+      const userId =
+        req.userId ||
+        guestId ||
+        "demo-user";
+
       const deletedStock =
-        await WatchlistItem.findOneAndDelete(
-          {
-            _id: req.params.id,
-            userId: req.userId,
-          }
-        );
+        await WatchlistItem.findOneAndDelete({
+          _id: req.params.id,
+          userId,
+        });
 
       if (!deletedStock) {
         return res.status(404).json({
           message:
-            "Stock not found",
+            "Stock not found.",
         });
       }
 
-      res.json({
+      return res.json({
         message:
-          "Stock removed successfully",
+          "Stock removed successfully.",
       });
     } catch (error) {
       console.error(
@@ -352,17 +881,17 @@ app.delete(
         error.message
       );
 
-      res.status(500).json({
+      return res.status(500).json({
         message:
-          "Failed to remove stock",
+          "Failed to remove stock.",
       });
     }
   }
 );
 
-/* =========================
+/* =========================================================
    Price history
-   ========================= */
+   ========================================================= */
 
 app.get(
   "/api/market/:ticker/history",
@@ -395,14 +924,14 @@ app.get(
           })
         );
 
-      res.json(history);
+      return res.json(history);
     } catch (error) {
       console.error(
         "Price history error:",
         error.message
       );
 
-      res.status(500).json({
+      return res.status(500).json({
         message:
           "Could not fetch price history.",
       });
@@ -410,9 +939,9 @@ app.get(
   }
 );
 
-/* =========================
+/* =========================================================
    Market data
-   ========================= */
+   ========================================================= */
 
 app.get(
   "/api/market/:ticker",
@@ -423,14 +952,15 @@ app.get(
         .toUpperCase();
 
     try {
-      /* Get current market data */
-
       const marketData =
         await getMarketData(
           ticker
         );
 
-      /* Get historical prices */
+      await checkAlerts(
+        ticker,
+        marketData.price
+      );
 
       const snapshots =
         await PriceSnapshot.find({
@@ -452,14 +982,10 @@ app.get(
               snapshot.price
           );
 
-      /* Historical returns */
-
       const historicalReturns =
         calculateReturns(
           historicalPrices
         );
-
-      /* Historical volume */
 
       const historicalVolumes =
         snapshots
@@ -471,8 +997,6 @@ app.get(
             (volume) =>
               volume > 0
           );
-
-      /* Current return */
 
       const currentReturn =
         marketData.previousClose >
@@ -486,8 +1010,6 @@ app.get(
             ) * 100
           : 0;
 
-      /* Objective signal */
-
       const signal =
         calculateSignal({
           currentReturn,
@@ -497,24 +1019,31 @@ app.get(
           historicalVolumes,
         });
 
-      /* Save live snapshot */
-
       await PriceSnapshot.create({
-        ticker: marketData.ticker,
-        price: marketData.price,
+        ticker:
+          marketData.ticker,
+        price:
+          marketData.price,
         volume:
           marketData.volume || 0,
-        capturedAt: new Date(),
+        capturedAt:
+          new Date(),
         sourceLagSeconds:
           null,
         source:
           "yahoo-finance",
       });
 
-      res.json({
+      return res.json({
         ...marketData,
         ...signal,
         stale: false,
+        unavailable: false,
+        hasEnoughHistory:
+          historicalReturns.length >=
+            20 &&
+          historicalVolumes.length >=
+            20,
       });
     } catch (error) {
       console.error(
@@ -522,61 +1051,51 @@ app.get(
         error.message
       );
 
-      /* Stale-data fallback */
-
-      try {
-        const latestSnapshot =
-          await PriceSnapshot.findOne({
-            ticker,
-          }).sort({
-            capturedAt: -1,
-          });
-
-        if (!latestSnapshot) {
-          return res.status(503).json({
-            message:
-              "Market data is temporarily unavailable and no previous data exists.",
-            stale: true,
-          });
-        }
-
-        res.json({
+      const latestSnapshot =
+        await PriceSnapshot.findOne({
           ticker,
-          price:
-            latestSnapshot.price,
-          volume:
-            latestSnapshot.volume,
-          capturedAt:
-            latestSnapshot.capturedAt,
-          source:
-            latestSnapshot.source,
-          stale: true,
-          urgency: "Low",
-          signalScore: 0,
-          reason:
-            "Live market data is temporarily unavailable. Showing the last available snapshot.",
+        }).sort({
+          capturedAt: -1,
         });
-      } catch (fallbackError) {
-        console.error(
-          "Snapshot fallback error:",
-          fallbackError.message
-        );
 
-        res.status(503).json({
+      if (!latestSnapshot) {
+        return res.status(503).json({
           message:
-            "Market data is temporarily unavailable.",
+            "Market data is temporarily unavailable and no previous data exists.",
+          ticker,
+          stale: true,
+          unavailable: true,
         });
       }
+
+      return res.json({
+        ticker,
+        price:
+          latestSnapshot.price,
+        volume:
+          latestSnapshot.volume,
+        capturedAt:
+          latestSnapshot.capturedAt,
+        source:
+          latestSnapshot.source,
+        stale: true,
+        unavailable: false,
+        urgency: "Low",
+        signalScore: 0,
+        reason:
+          "Live market data is temporarily unavailable. Showing the last available snapshot.",
+      });
     }
   }
 );
 
-/* =========================
+/* =========================================================
    Market view + personalization
-   ========================= */
+   ========================================================= */
 
 app.post(
   "/api/market/:ticker/view",
+  requireAuth,
   async (req, res) => {
     try {
       const ticker =
@@ -587,14 +1106,15 @@ app.post(
       const userId =
         req.userId;
 
-      /* Current market data */
-
       const marketData =
         await getMarketData(
           ticker
         );
 
-      /* Historical data */
+      await checkAlerts(
+        ticker,
+        marketData.price
+      );
 
       const snapshots =
         await PriceSnapshot.find({
@@ -632,8 +1152,6 @@ app.post(
               volume > 0
           );
 
-      /* Current return */
-
       const currentReturn =
         marketData.previousClose >
         0
@@ -646,8 +1164,6 @@ app.post(
             ) * 100
           : 0;
 
-      /* Objective signal */
-
       const signal =
         calculateSignal({
           currentReturn,
@@ -657,11 +1173,11 @@ app.post(
           historicalVolumes,
         });
 
-      /* User preference */
-
       const preference =
         await UserPreference.findOneAndUpdate(
-          { userId },
+          {
+            userId,
+          },
           {},
           {
             returnDocument:
@@ -672,15 +1188,11 @@ app.post(
           }
         );
 
-      /* Previous user view */
-
       const previousView =
         await UserViewState.findOne({
           userId,
           ticker,
         });
-
-      /* Personalization */
 
       const interestWeight =
         Math.max(
@@ -698,8 +1210,6 @@ app.post(
           signal.signalScore,
           interestWeight
         );
-
-      /* Update latest user view */
 
       const viewState =
         await UserViewState.findOneAndUpdate(
@@ -721,16 +1231,11 @@ app.post(
           }
         );
 
-      /* Decide whether to surface */
-
-      let signalEvent = null;
-
       const userHasSeenStock =
         Boolean(previousView);
 
       const objectivelyMeaningful =
-        signal.urgency !==
-        "Low";
+        signal.urgency !== "Low";
 
       let meaningfulSinceLastView =
         false;
@@ -769,39 +1274,38 @@ app.post(
         personalizedScore >=
           PERSONALIZATION_THRESHOLD;
 
-      /* Create signal event */
+      let signalEvent = null;
 
       if (shouldSurfaceSignal) {
         signalEvent =
-          await SignalEvent.create(
-            {
-              userId,
-              ticker,
+          await SignalEvent.create({
+            userId,
+            ticker,
+            signalType:
+              "PRICE_MOVE",
 
-              signalType:
-                "PRICE_MOVE",
+            magnitude:
+              Number(
+                Math.abs(
+                  currentReturn
+                ).toFixed(2)
+              ),
 
-              magnitude:
-                Number(
-                  Math.abs(
-                    currentReturn
-                  ).toFixed(2)
-                ),
+            reason:
+              `${signal.reason} Personalized relevance: ${personalizedScore.toFixed(
+                2
+              )}.`,
 
-              reason:
-                `${signal.reason} Personalized relevance: ${personalizedScore.toFixed(
-                  2
-                )}.`,
-
-              shownToUser:
-                true,
-            }
-          );
+            shownToUser:
+              true,
+          });
       }
 
-      res.json({
+      return res.json({
         viewState,
         signalEvent,
+        hasEnoughHistory,
+        personalizedScore,
       });
     } catch (error) {
       console.error(
@@ -809,20 +1313,21 @@ app.post(
         error.message
       );
 
-      res.status(500).json({
+      return res.status(500).json({
         message:
-          "Failed to update view state",
+          "Failed to update view state.",
       });
     }
   }
 );
 
-/* =========================
+/* =========================================================
    Signal history
-   ========================= */
+   ========================================================= */
 
 app.get(
   "/api/signals/:ticker/history",
+  requireAuth,
   async (req, res) => {
     try {
       const ticker =
@@ -830,52 +1335,44 @@ app.get(
           .trim()
           .toUpperCase();
 
-      const userId =
-        req.userId;
-
       const signals =
         await SignalEvent.find({
           ticker,
-          userId,
+          userId:
+            req.userId,
         })
           .sort({
             createdAt: -1,
           })
           .limit(20);
 
-      res.json(signals);
+      return res.json(signals);
     } catch (error) {
       console.error(
         "Signal history error:",
         error.message
       );
 
-      res.status(500).json({
+      return res.status(500).json({
         message:
-          "Failed to fetch signal history",
+          "Failed to fetch signal history.",
       });
     }
   }
 );
 
-/* =========================
+/* =========================================================
    Feedback
-   ========================= */
+   ========================================================= */
 
 app.post(
   "/api/signals/:signalId/feedback",
+  requireAuth,
   async (req, res) => {
     try {
-      const userId =
-        req.userId;
-
-      const signalId =
-        req.params.signalId;
-
-      const { feedback } =
-        req.body;
-
-      /* Validate feedback */
+      const {
+        feedback,
+      } = req.body;
 
       if (
         ![
@@ -885,30 +1382,29 @@ app.post(
       ) {
         return res.status(400).json({
           message:
-            "Feedback must be 'useful' or 'not_for_me'",
+            "Feedback must be 'useful' or 'not_for_me'.",
         });
       }
 
-      /* Find signal */
-
       const signal =
         await SignalEvent.findOne({
-          _id: signalId,
-          userId,
+          _id:
+            req.params.signalId,
+          userId:
+            req.userId,
         });
 
       if (!signal) {
         return res.status(404).json({
           message:
-            "Signal not found",
+            "Signal not found.",
         });
       }
 
-      /* Prevent duplicate feedback */
-
       const existingFeedback =
         await UserFeedback.findOne({
-          userId,
+          userId:
+            req.userId,
           signalEventId:
             signal._id,
         });
@@ -916,32 +1412,30 @@ app.post(
       if (existingFeedback) {
         return res.status(409).json({
           message:
-            "Feedback already recorded for this signal",
+            "Feedback already recorded for this signal.",
         });
       }
 
-      /* Store feedback */
-
       const savedFeedback =
-        await UserFeedback.create(
-          {
-            userId,
+        await UserFeedback.create({
+          userId:
+            req.userId,
 
-            signalEventId:
-              signal._id,
+          signalEventId:
+            signal._id,
 
-            ticker:
-              signal.ticker,
+          ticker:
+            signal.ticker,
 
-            feedback,
-          }
-        );
-
-      /* Get user preference */
+          feedback,
+        });
 
       const preference =
         await UserPreference.findOneAndUpdate(
-          { userId },
+          {
+            userId:
+              req.userId,
+          },
           {},
           {
             returnDocument:
@@ -951,8 +1445,6 @@ app.post(
               true,
           }
         );
-
-      /* Adjust preference */
 
       const adjustment =
         feedback === "useful"
@@ -971,13 +1463,11 @@ app.post(
 
       await preference.save();
 
-      res.json({
+      return res.json({
         message:
-          "Feedback recorded",
-
+          "Feedback recorded.",
         feedback:
           savedFeedback,
-
         priceMoveWeight:
           preference.priceMoveWeight,
       });
@@ -987,175 +1477,407 @@ app.post(
         error.message
       );
 
-      res.status(500).json({
+      return res.status(500).json({
         message:
-          "Failed to record feedback",
+          "Failed to record feedback.",
       });
     }
   }
 );
 
-/* =========================
-   Development test signal
-   ========================= */
+/* =========================================================
+   Push subscription
+   ========================================================= */
+
+app.get(
+  "/api/push/public-key",
+  requireAuth,
+  (req, res) => {
+    if (
+      !process.env.VAPID_PUBLIC_KEY
+    ) {
+      return res.status(503).json({
+        message:
+          "Browser notifications are not configured yet.",
+      });
+    }
+
+    return res.json({
+      publicKey:
+        process.env.VAPID_PUBLIC_KEY,
+    });
+  }
+);
 
 app.post(
-  "/api/dev/test-signal",
+  "/api/push/subscribe",
+  requireAuth,
   async (req, res) => {
     try {
-      const userId =
-        req.userId;
+      const subscription =
+        req.body;
 
+      if (
+        !subscription ||
+        !subscription.endpoint ||
+        !subscription.keys
+      ) {
+        return res.status(400).json({
+          message:
+            "Invalid push subscription.",
+        });
+      }
+
+      await PushSubscription.findOneAndUpdate(
+        {
+          userId:
+            req.userId,
+
+          endpoint:
+            subscription.endpoint,
+        },
+        {
+          userId:
+            req.userId,
+
+          endpoint:
+            subscription.endpoint,
+
+          keys: {
+            p256dh:
+              subscription.keys.p256dh,
+
+            auth:
+              subscription.keys.auth,
+          },
+        },
+        {
+          upsert: true,
+          returnDocument:
+            "after",
+        }
+      );
+
+      return res.json({
+        message:
+          "Browser notifications enabled.",
+      });
+    } catch (error) {
+      console.error(
+        "Push subscription error:",
+        error.message
+      );
+
+      return res.status(500).json({
+        message:
+          "Could not enable browser notifications.",
+      });
+    }
+  }
+);
+
+app.delete(
+  "/api/push/subscribe",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const endpoint =
+        String(
+          req.body.endpoint ||
+            ""
+        ).trim();
+
+      if (endpoint) {
+        await PushSubscription.deleteOne({
+          userId:
+            req.userId,
+          endpoint,
+        });
+      }
+
+      return res.json({
+        message:
+          "Browser notifications disabled.",
+      });
+    } catch (error) {
+      console.error(
+        "Push unsubscribe error:",
+        error.message
+      );
+
+      return res.status(500).json({
+        message:
+          "Could not disable browser notifications.",
+      });
+    }
+  }
+);
+
+/* =========================================================
+   Alerts
+   ========================================================= */
+
+app.get(
+  "/api/alerts",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const alerts =
+        await Alert.find({
+          userId:
+            req.userId,
+        })
+          .sort({
+            createdAt: -1,
+          })
+          .lean();
+
+      return res.json(alerts);
+    } catch (error) {
+      console.error(
+        "Fetch alerts error:",
+        error.message
+      );
+
+      return res.status(500).json({
+        message:
+          "Could not fetch alerts.",
+      });
+    }
+  }
+);
+
+app.post(
+  "/api/alerts",
+  requireAuth,
+  async (req, res) => {
+    try {
       const ticker =
-        req.body.ticker
-          ?.trim()
-          .toUpperCase() ||
-        "RELIANCE";
+        String(
+          req.body.ticker || ""
+        )
+          .trim()
+          .toUpperCase();
 
-      const signalEvent =
-        await SignalEvent.create({
-          userId,
+      const condition =
+        String(
+          req.body.condition || ""
+        ).trim();
+
+      const targetPrice =
+        Number(
+          req.body.targetPrice
+        );
+
+      if (
+        !/^[A-Z0-9.-]{1,15}$/.test(
+          ticker
+        )
+      ) {
+        return res.status(400).json({
+          message:
+            "Invalid ticker symbol.",
+        });
+      }
+
+      if (
+        ![
+          "above",
+          "below",
+        ].includes(condition)
+      ) {
+        return res.status(400).json({
+          message:
+            "Alert condition must be above or below.",
+        });
+      }
+
+      if (
+        !Number.isFinite(
+          targetPrice
+        ) ||
+        targetPrice <= 0
+      ) {
+        return res.status(400).json({
+          message:
+            "Please enter a valid target price.",
+        });
+      }
+
+      const alert =
+        await Alert.create({
+          userId:
+            req.userId,
+
           ticker,
-          signalType:
-            "PRICE_MOVE",
 
-          magnitude: 3.25,
+          condition,
 
-          reason:
-            "Demo signal: price movement is unusually large and confirmed by elevated volume.",
+          targetPrice,
 
-          shownToUser:
-            true,
+          active: true,
         });
 
-      res.status(201).json(
-        signalEvent
-      );
+      return res.status(201).json(alert);
     } catch (error) {
       console.error(
-        "Test signal error:",
+        "Create alert error:",
         error.message
       );
 
-      res.status(500).json({
+      return res.status(500).json({
         message:
-          "Failed to create test signal",
+          "Could not create price alert.",
       });
     }
   }
 );
 
-/* =========================
-   Development personalization test
-   ========================= */
-
-app.post(
-  "/api/dev/personalization-test",
+app.delete(
+  "/api/alerts/:id",
+  requireAuth,
   async (req, res) => {
     try {
-      const signalScore =
-        Number(
-          req.body.signalScore
-        ) || 0;
+      const deletedAlert =
+        await Alert.findOneAndDelete({
+          _id:
+            req.params.id,
 
-      const preference =
-        await UserPreference.findOneAndUpdate(
-          {
-            userId:
-              req.userId,
-          },
-          {},
-          {
-            returnDocument:
-              "after",
-            upsert: true,
-            setDefaultsOnInsert:
-              true,
-          }
-        );
+          userId:
+            req.userId,
+        });
 
-      const personalizedScore =
-        calculatePersonalizedScore(
-          signalScore,
-          preference.priceMoveWeight
-        );
+      if (!deletedAlert) {
+        return res.status(404).json({
+          message:
+            "Alert not found.",
+        });
+      }
 
-      const shouldSurface =
-        personalizedScore >=
-        PERSONALIZATION_THRESHOLD;
-
-      res.json({
-        signalScore,
-
-        interestWeight:
-          preference.priceMoveWeight,
-
-        personalizedScore,
-
-        threshold:
-          PERSONALIZATION_THRESHOLD,
-
-        shouldSurface,
+      return res.json({
+        message:
+          "Alert removed.",
       });
     } catch (error) {
       console.error(
-        "Personalization test error:",
+        "Delete alert error:",
         error.message
       );
 
-      res.status(500).json({
+      return res.status(500).json({
         message:
-          "Personalization test failed",
+          "Could not remove alert.",
       });
     }
   }
 );
 
-/* =========================
+app.patch(
+  "/api/alerts/:id/toggle",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const alert =
+        await Alert.findOne({
+          _id:
+            req.params.id,
+
+          userId:
+            req.userId,
+        });
+
+      if (!alert) {
+        return res.status(404).json({
+          message:
+            "Alert not found.",
+        });
+      }
+
+      alert.active =
+        !alert.active;
+
+      if (alert.active) {
+        alert.triggeredAt =
+          null;
+      }
+
+      await alert.save();
+
+      return res.json(alert);
+    } catch (error) {
+      console.error(
+        "Toggle alert error:",
+        error.message
+      );
+
+      return res.status(500).json({
+        message:
+          "Could not update alert.",
+      });
+    }
+  }
+);
+
+/* =========================================================
    Dashboard
-   ========================= */
+   ========================================================= */
 
 app.get(
   "/api/dashboard",
+  optionalAuth,
   async (req, res) => {
     try {
+      const guestId =
+        req.headers["x-guest-id"];
+
       const userId =
-        req.userId;
+        req.userId ||
+        guestId ||
+        "demo-user";
 
-      /* User preference */
+      let interestWeight = 0.5;
 
-      const preference =
-        await UserPreference.findOneAndUpdate(
-          { userId },
-          {},
-          {
-            returnDocument:
-              "after",
-            upsert: true,
-            setDefaultsOnInsert:
-              true,
-          }
-        );
+      if (req.isAuthenticated) {
+        const preference =
+          await UserPreference.findOneAndUpdate(
+            {
+              userId,
+            },
+            {},
+            {
+              returnDocument:
+                "after",
 
-      const interestWeight =
-        Math.max(
+              upsert: true,
+
+              setDefaultsOnInsert:
+                true,
+            }
+          );
+
+        interestWeight = Math.max(
           0,
           Math.min(
             1,
             Number(
               preference.priceMoveWeight
-            ) || 0
+            ) || 0.5
           )
         );
+      }
 
-      /* Watchlist */
+      /* -----------------------------------------------------
+         Watchlist
+         ----------------------------------------------------- */
 
       const watchlist =
         await WatchlistItem.find({
           userId,
         }).lean();
 
-      /* Market overview */
+      /* -----------------------------------------------------
+         Market overview
+         ----------------------------------------------------- */
 
       const marketSymbols = [
         {
@@ -1192,7 +1914,7 @@ app.get(
                 const price =
                   Number(
                     quote.regularMarketPrice
-                  ) || null;
+                  );
 
                 const changePercent =
                   Number(
@@ -1202,7 +1924,14 @@ app.get(
                 return {
                   symbol,
                   name,
-                  price,
+
+                  price:
+                    Number.isFinite(
+                      price
+                    )
+                      ? price
+                      : null,
+
                   changePercent:
                     Number.isFinite(
                       changePercent
@@ -1213,6 +1942,8 @@ app.get(
                           )
                         )
                       : null,
+
+                  stale: false,
                 };
               } catch (error) {
                 console.error(
@@ -1224,14 +1955,18 @@ app.get(
                   symbol,
                   name,
                   price: null,
-                  changePercent: null,
+                  changePercent:
+                    null,
+                  stale: true,
                 };
               }
             }
           )
         );
 
-      /* Watchlist summary */
+      /* -----------------------------------------------------
+         Summary
+         ----------------------------------------------------- */
 
       let up = 0;
       let down = 0;
@@ -1243,74 +1978,108 @@ app.get(
       const stocks = [];
       const nudges = [];
 
+      /* -----------------------------------------------------
+         Analyze watchlist
+         ----------------------------------------------------- */
+
       for (const stock of watchlist) {
         const ticker =
           stock.ticker;
 
         try {
           const marketData =
-            await getMarketData(
+            await getSafeMarketData(
               ticker
             );
 
+          const hasLivePrice =
+            Number.isFinite(
+              Number(
+                marketData.price
+              )
+            );
+
+          const hasLiveChange =
+            Number.isFinite(
+              Number(
+                marketData.changePercent
+              )
+            );
+
+          const stale =
+            Boolean(
+              marketData.stale
+            );
+
+          const unavailable =
+            Boolean(
+              marketData.unavailable
+            );
+
           const changePercent =
-            Number(
-              marketData.changePercent
-            ) || 0;
-
-          /* Count movement */
-
-          if (changePercent > 0) {
-            up++;
-          } else if (
-            changePercent < 0
-          ) {
-            down++;
-          } else {
-            unchanged++;
-          }
-
-          /* Best performer */
+            hasLiveChange
+              ? Number(
+                  marketData.changePercent
+                )
+              : null;
 
           if (
-            !best ||
-            changePercent >
-              best.changePercent
+            changePercent !==
+            null
           ) {
-            best = {
-              ticker,
-              changePercent:
-                Number(
-                  changePercent.toFixed(
-                    2
-                  )
-                ),
-            };
+            if (
+              changePercent > 0
+            ) {
+              up++;
+            } else if (
+              changePercent < 0
+            ) {
+              down++;
+            } else {
+              unchanged++;
+            }
+
+            if (
+              !best ||
+              changePercent >
+                best.changePercent
+            ) {
+              best = {
+                ticker,
+                changePercent:
+                  Number(
+                    changePercent.toFixed(
+                      2
+                    )
+                  ),
+              };
+            }
+
+            if (
+              !worst ||
+              changePercent <
+                worst.changePercent
+            ) {
+              worst = {
+                ticker,
+                changePercent:
+                  Number(
+                    changePercent.toFixed(
+                      2
+                    )
+                  ),
+              };
+            }
           }
 
-          /* Worst performer */
-
-          if (
-            !worst ||
-            changePercent <
-              worst.changePercent
-          ) {
-            worst = {
-              ticker,
-              changePercent:
-                Number(
-                  changePercent.toFixed(
-                    2
-                  )
-                ),
-            };
-          }
-
-          /* Historical data */
+          /* -----------------------------------------------
+             Historical data
+             ----------------------------------------------- */
 
           const snapshots =
             await PriceSnapshot.find({
               ticker,
+
               source:
                 "yahoo-finance-historical",
             })
@@ -1350,41 +2119,66 @@ app.get(
             historicalVolumes.length >=
               20;
 
-          /* Current return */
+          /* -----------------------------------------------
+             Signal
+             ----------------------------------------------- */
 
-          const currentReturn =
+          let signal = {
+            signalScore: 0,
+            urgency: "Low",
+
+            reason:
+              "Not enough history yet to determine a meaningful change.",
+
+            zScore: 0,
+            volumeRatio: 0,
+          };
+
+          if (
+            hasEnoughHistory &&
+            hasLivePrice &&
             marketData.previousClose >
-            0
-              ? (
-                  (
-                    marketData.price -
-                    marketData.previousClose
-                  ) /
+              0
+          ) {
+            const currentReturn =
+              (
+                (
+                  marketData.price -
                   marketData.previousClose
-                ) * 100
-              : 0;
+                ) /
+                marketData.previousClose
+              ) * 100;
 
-          /* Objective signal */
+            signal =
+              calculateSignal({
+                currentReturn,
 
-          const signal =
-            calculateSignal({
-              currentReturn,
-              historicalReturns,
-              currentVolume:
-                marketData.volume ||
-                0,
-              historicalVolumes,
-            });
+                historicalReturns,
 
-          /* Previous user view */
+                currentVolume:
+                  marketData.volume ||
+                  0,
 
-          const previousView =
-            await UserViewState.findOne(
-              {
-                userId,
-                ticker,
-              }
-            ).lean();
+                historicalVolumes,
+              });
+          }
+
+          /* -----------------------------------------------
+             Previous view
+             ----------------------------------------------- */
+
+          let previousView =
+            null;
+
+          if (req.isAuthenticated) {
+            previousView =
+              await UserViewState.findOne(
+                {
+                  userId,
+                  ticker,
+                }
+              ).lean();
+          }
 
           let meaningfulSinceLastView =
             false;
@@ -1392,7 +2186,8 @@ app.get(
           if (
             previousView &&
             previousView.lastSeenPrice >
-              0
+              0 &&
+            hasLivePrice
           ) {
             const priceChange =
               Math.abs(
@@ -1409,8 +2204,6 @@ app.get(
               priceChange >= 0.1;
           }
 
-          /* Personalized relevance */
-
           const personalizedScore =
             calculatePersonalizedScore(
               signal.signalScore,
@@ -1418,14 +2211,20 @@ app.get(
             );
 
           const shouldSurface =
+            req.isAuthenticated &&
+            !stale &&
+            !unavailable &&
             hasEnoughHistory &&
             Boolean(previousView) &&
-            signal.urgency !== "Low" &&
+            signal.urgency !==
+              "Low" &&
             meaningfulSinceLastView &&
             personalizedScore >=
               PERSONALIZATION_THRESHOLD;
 
-          /* Today's Nudge */
+          /* -----------------------------------------------
+             Context + suggestion
+             ----------------------------------------------- */
 
           if (shouldSurface) {
             const marketContext =
@@ -1501,12 +2300,20 @@ app.get(
                 ),
 
               magnitude:
-                signal.magnitude ??
-                Number(
-                  Math.abs(
-                    currentReturn
-                  ).toFixed(2)
-                ),
+                marketData.previousClose >
+                0
+                  ? Number(
+                      Math.abs(
+                        (
+                          (
+                            marketData.price -
+                            marketData.previousClose
+                          ) /
+                          marketData.previousClose
+                        ) * 100
+                      ).toFixed(2)
+                    )
+                  : 0,
 
               zScore:
                 signal.zScore,
@@ -1522,38 +2329,25 @@ app.get(
               reason:
                 signal.reason,
 
-              marketContext:
-                marketContext
-                  ? {
-                      name:
-                        marketContext.name,
-
-                      changePercent:
-                        marketContext.changePercent,
-                    }
-                  : null,
-
               contextText,
 
               suggestion,
             });
           }
 
-          /* Stock result */
-
           stocks.push({
             ticker,
+
             price:
-              marketData.price,
+              hasLivePrice
+                ? marketData.price
+                : null,
 
-            changePercent:
-              Number(
-                changePercent.toFixed(
-                  2
-                )
-              ),
+            changePercent,
 
-            stale: false,
+            stale,
+
+            unavailable,
 
             hasEnoughHistory,
           });
@@ -1563,18 +2357,33 @@ app.get(
             error.message
           );
 
+          const latestSnapshot =
+            await PriceSnapshot.findOne({
+              ticker,
+            }).sort({
+              capturedAt: -1,
+            });
+
           stocks.push({
             ticker,
-            price: null,
-            changePercent: null,
+
+            price:
+              latestSnapshot?.price ??
+              null,
+
+            changePercent:
+              null,
+
             stale: true,
+
+            unavailable:
+              !latestSnapshot,
+
             hasEnoughHistory:
               false,
           });
         }
       }
-
-      /* Sort nudges by relevance */
 
       nudges.sort(
         (a, b) =>
@@ -1582,9 +2391,7 @@ app.get(
           a.personalizedScore
       );
 
-      /* Response */
-
-      res.json({
+      return res.json({
         status: "ok",
 
         marketOverview,
@@ -1592,9 +2399,11 @@ app.get(
         watchlistSummary: {
           total:
             watchlist.length,
+
           up,
           down,
           unchanged,
+
           best,
           worst,
         },
@@ -1610,7 +2419,7 @@ app.get(
         error.message
       );
 
-      res.status(500).json({
+      return res.status(500).json({
         status: "error",
         message:
           "Failed to load dashboard.",
@@ -1619,9 +2428,59 @@ app.get(
   }
 );
 
-/* =========================
+/* =========================================================
+   MongoDB connection
+   ========================================================= */
+
+console.log(
+  "Trying to connect to MongoDB..."
+);
+
+mongoose
+  .connect(
+    process.env.MONGO_URI,
+    {
+      serverSelectionTimeoutMS: 10000,
+    }
+  )
+  .then(async () => {
+    console.log(
+      "MongoDB connected successfully!"
+    );
+
+    const {
+      runMarketIngestion,
+      bootstrapHistoricalData,
+    } = require(
+      "./jobs/marketIngestion"
+    );
+
+    await bootstrapHistoricalData();
+
+    runMarketIngestion();
+  })
+  .catch((error) => {
+    console.error(
+      "MongoDB connection failed:",
+      error.message
+    );
+  });
+
+/* =========================================================
+   Health check
+   ========================================================= */
+
+app.get("/", (req, res) => {
+  res.json({
+    message:
+      "Nudge backend is running.",
+    database: "MongoDB",
+  });
+});
+
+/* =========================================================
    Start server
-   ========================= */
+   ========================================================= */
 
 app.listen(
   PORT,

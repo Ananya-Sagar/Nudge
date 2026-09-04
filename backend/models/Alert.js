@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const signalEventSchema = new mongoose.Schema(
+const alertSchema = new mongoose.Schema(
   {
     userId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -15,26 +15,26 @@ const signalEventSchema = new mongoose.Schema(
       trim: true,
     },
 
-    signalType: {
+    condition: {
       type: String,
+      enum: ["above", "below"],
       required: true,
-      default: "PRICE_MOVE",
     },
 
-    magnitude: {
+    targetPrice: {
       type: Number,
       required: true,
+      min: 0,
     },
 
-    reason: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-
-    shownToUser: {
+    active: {
       type: Boolean,
-      default: false,
+      default: true,
+    },
+
+    triggeredAt: {
+      type: Date,
+      default: null,
     },
   },
   {
@@ -42,13 +42,9 @@ const signalEventSchema = new mongoose.Schema(
   }
 );
 
-signalEventSchema.index({
+alertSchema.index({
   userId: 1,
-  ticker: 1,
-  createdAt: -1,
+  active: 1,
 });
 
-module.exports = mongoose.model(
-  "SignalEvent",
-  signalEventSchema
-);
+module.exports = mongoose.model("Alert", alertSchema);

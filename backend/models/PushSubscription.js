@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const userViewStateSchema = new mongoose.Schema(
+const pushSubscriptionSchema = new mongoose.Schema(
   {
     userId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -8,21 +8,21 @@ const userViewStateSchema = new mongoose.Schema(
       required: true,
     },
 
-    ticker: {
+    endpoint: {
       type: String,
       required: true,
-      uppercase: true,
-      trim: true,
     },
 
-    lastSeenPrice: {
-      type: Number,
-      default: null,
-    },
+    keys: {
+      p256dh: {
+        type: String,
+        required: true,
+      },
 
-    lastSeenAt: {
-      type: Date,
-      default: null,
+      auth: {
+        type: String,
+        required: true,
+      },
     },
   },
   {
@@ -30,10 +30,10 @@ const userViewStateSchema = new mongoose.Schema(
   }
 );
 
-userViewStateSchema.index(
+pushSubscriptionSchema.index(
   {
     userId: 1,
-    ticker: 1,
+    endpoint: 1,
   },
   {
     unique: true,
@@ -41,6 +41,6 @@ userViewStateSchema.index(
 );
 
 module.exports = mongoose.model(
-  "UserViewState",
-  userViewStateSchema
+  "PushSubscription",
+  pushSubscriptionSchema
 );

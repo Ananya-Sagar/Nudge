@@ -3,7 +3,8 @@ const mongoose = require("mongoose");
 const userFeedbackSchema = new mongoose.Schema(
   {
     userId: {
-      type: String,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
       required: true,
     },
 
@@ -17,6 +18,7 @@ const userFeedbackSchema = new mongoose.Schema(
       type: String,
       required: true,
       uppercase: true,
+      trim: true,
     },
 
     feedback: {

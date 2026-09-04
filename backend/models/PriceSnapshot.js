@@ -17,6 +17,7 @@ const priceSnapshotSchema = new mongoose.Schema(
     volume: {
       type: Number,
       required: true,
+      default: 0,
     },
 
     capturedAt: {
@@ -39,9 +40,10 @@ const priceSnapshotSchema = new mongoose.Schema(
   }
 );
 
-priceSnapshotSchema.index(
-  { ticker: 1, capturedAt: -1 }
-);
+priceSnapshotSchema.index({
+  ticker: 1,
+  capturedAt: -1,
+});
 
 module.exports = mongoose.model(
   "PriceSnapshot",
