@@ -1024,6 +1024,39 @@ app.post(
 
 
 /* =========================
+   Development test signal
+   ========================= */
+
+app.post("/api/dev/test-signal", async (req, res) => {
+  try {
+    const userId = req.userId;
+    const ticker =
+      req.body.ticker?.trim().toUpperCase() || "RELIANCE";
+
+    const signalEvent = await SignalEvent.create({
+      userId,
+      ticker,
+      signalType: "PRICE_MOVE",
+      magnitude: 3.25,
+      reason:
+        "Demo signal: price movement is unusually large and confirmed by elevated volume.",
+      shownToUser: true,
+    });
+
+    res.status(201).json(signalEvent);
+  } catch (error) {
+    console.error(
+      "Test signal error:",
+      error.message
+    );
+
+    res.status(500).json({
+      message: "Failed to create test signal",
+    });
+  }
+});
+
+/* =========================
    Start server
    ========================= */
 

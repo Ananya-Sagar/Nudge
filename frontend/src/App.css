@@ -848,3 +848,8 @@ button {
 .refresh-all-button:hover {
   background: #f3f0fc;
 }
+
+.refresh-all-button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}

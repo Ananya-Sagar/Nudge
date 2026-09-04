@@ -472,6 +472,7 @@ function App() {
   const [priceHistory, setPriceHistory] = useState({});
   const [loadingTicker, setLoadingTicker] = useState(null);
   const [toast, setToast] = useState("");
+  const [refreshingAll, setRefreshingAll] = useState(false);
 
   useEffect(() => {
     fetch("http://localhost:5000/api/watchlist", {
@@ -614,13 +615,25 @@ if (historyResponse.ok) {
     }
   };
 
-    const refreshAllStocks = async () => {
-  if (watchlist.length === 0) {
+const refreshAllStocks = async () => {
+  if (watchlist.length === 0 || refreshingAll) {
     return;
   }
 
-  for (const stock of watchlist) {
-    await fetchMarketData(stock.ticker);
+  setRefreshingAll(true);
+
+  try {
+    for (const stock of watchlist) {
+      await fetchMarketData(stock.ticker);
+    }
+
+    setToast("Your watchlist is up to date.");
+
+    setTimeout(() => {
+      setToast("");
+    }, 2500);
+  } finally {
+    setRefreshingAll(false);
   }
 };
 
@@ -851,12 +864,15 @@ if (!confirmed) {
       : "stocks"}
   </span>
 
-  <button
-    className="refresh-all-button"
-    onClick={refreshAllStocks}
-  >
-    Refresh all
-  </button>
+<button
+  className="refresh-all-button"
+  onClick={refreshAllStocks}
+  disabled={refreshingAll}
+>
+  {refreshingAll
+    ? "Refreshing..."
+    : "Refresh all"}
+</button>
 </div>
 
         </div>
