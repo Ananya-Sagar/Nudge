@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import "./App.css";
 
-const API_URL = "http://localhost:5000";
+const API_URL = "https://nudge-obc3.onrender.com";
 const USER_ID_KEY = "market_watch_user_id";
 
 const COMPANY_NAMES = {
@@ -682,35 +682,46 @@ function App() {
   /* =========================
      Refresh all
      ========================= */
+const refreshAllStocks = async () => {
+  if (
+    watchlist.length === 0 ||
+    refreshingAll
+  ) {
+    return;
+  }
 
-  const refreshAllStocks = async () => {
-    if (
-      watchlist.length === 0 ||
-      refreshingAll
-    ) {
-      return;
-    }
+  setRefreshingAll(true);
+  setErrorMessage("");
 
-    setRefreshingAll(true);
-
-    try {
-      for (const stock of watchlist) {
-        await fetchMarketData(
-          stock.ticker
-        );
-      }
-
-      setToast(
-        "Your watchlist is up to date."
+  try {
+    for (const stock of watchlist) {
+      await fetchMarketData(
+        stock.ticker
       );
-
-      setTimeout(() => {
-        setToast("");
-      }, 2500);
-    } finally {
-      setRefreshingAll(false);
     }
-  };
+
+    await loadDashboard();
+
+    setToast(
+      "Your watchlist is up to date."
+    );
+
+    setTimeout(() => {
+      setToast("");
+    }, 2500);
+  } catch (error) {
+    console.error(
+      "Refresh all error:",
+      error
+    );
+
+    setErrorMessage(
+      "Some market data could not be refreshed."
+    );
+  } finally {
+    setRefreshingAll(false);
+  }
+};
 
   /* =========================
      Signal history
