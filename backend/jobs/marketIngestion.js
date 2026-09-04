@@ -193,6 +193,201 @@ const checkPriceAlerts = async (
 };
 
 /* =========================================================
+   Load historical data for one ticker
+   ========================================================= */
+
+const loadHistoricalDataForTicker =
+  async (ticker) => {
+    const cleanTicker =
+      String(ticker || "")
+        .trim()
+        .toUpperCase();
+
+    if (!cleanTicker) {
+      return {
+        success: false,
+        count: 0,
+      };
+    }
+
+    try {
+      const existingCount =
+        await PriceSnapshot.countDocuments({
+          ticker: cleanTicker,
+
+          source:
+            "yahoo-finance-historical",
+        });
+
+      /*
+       * Don't fetch history again if
+       * this stock already has enough.
+       */
+      if (existingCount >= 20) {
+        return {
+          success: true,
+          count: existingCount,
+          alreadyReady: true,
+        };
+      }
+
+      console.log(
+        `Loading historical data for ${cleanTicker}...`
+      );
+
+      const result =
+        await yahooFinance.chart(
+          `${cleanTicker}.NS`,
+          {
+            period1:
+              new Date(
+                Date.now() -
+                  35 *
+                    24 *
+                    60 *
+                    60 *
+                    1000
+              ),
+
+            period2:
+              new Date(),
+
+            interval: "1d",
+          }
+        );
+
+      const quotes =
+        result.quotes || [];
+
+      let savedCount = 0;
+
+      for (const quote of quotes) {
+        if (
+          typeof quote.close !==
+            "number" ||
+          !Number.isFinite(
+            quote.close
+          )
+        ) {
+          continue;
+        }
+
+        const capturedAt =
+          new Date(
+            quote.date
+          );
+
+        const exists =
+          await PriceSnapshot.findOne({
+            ticker: cleanTicker,
+            capturedAt,
+          });
+
+        if (exists) {
+          continue;
+        }
+
+        await PriceSnapshot.create({
+          ticker: cleanTicker,
+
+          price:
+            quote.close,
+
+          previousClose:
+            null,
+
+          volume:
+            typeof quote.volume ===
+            "number"
+              ? quote.volume
+              : 0,
+
+          capturedAt,
+
+          sourceLagSeconds:
+            null,
+
+          source:
+            "yahoo-finance-historical",
+        });
+
+        savedCount++;
+      }
+
+      const totalCount =
+        await PriceSnapshot.countDocuments({
+          ticker: cleanTicker,
+
+          source:
+            "yahoo-finance-historical",
+        });
+
+      console.log(
+        `Historical data ready for ${cleanTicker}: ${totalCount} records`
+      );
+
+      return {
+        success: true,
+        count: totalCount,
+        added: savedCount,
+        alreadyReady: false,
+      };
+    } catch (error) {
+      console.error(
+        `Historical data unavailable for ${cleanTicker}:`,
+        error.message
+      );
+
+      return {
+        success: false,
+        count: 0,
+        error:
+          error.message,
+      };
+    }
+  };
+
+/* =========================================================
+   Bootstrap history for all watchlist stocks
+   ========================================================= */
+
+const bootstrapHistoricalData =
+  async () => {
+    try {
+      console.log(
+        "Checking historical market data..."
+      );
+
+      const watchlistItems =
+        await WatchlistItem.find();
+
+      const uniqueTickers = [
+        ...new Set(
+          watchlistItems.map(
+            (item) =>
+              item.ticker
+          )
+        ),
+      ];
+
+      for (const ticker of uniqueTickers) {
+        await loadHistoricalDataForTicker(
+          ticker
+        );
+      }
+
+      console.log(
+        "Historical bootstrap completed."
+      );
+    } catch (error) {
+      console.error(
+        "Historical bootstrap failed:",
+        error.message
+      );
+    }
+  };
+
+/* =========================================================
    Save market index snapshot
    ========================================================= */
 
@@ -223,6 +418,7 @@ const saveIndexSnapshot =
 
       await PriceSnapshot.create({
         ticker: index.ticker,
+
         price,
 
         previousClose:
@@ -264,155 +460,7 @@ const saveIndexSnapshot =
   };
 
 /* =========================================================
-   Historical stock data
-   ========================================================= */
-
-const bootstrapHistoricalData =
-  async () => {
-    try {
-      console.log(
-        "Checking historical market data..."
-      );
-
-      const watchlistItems =
-        await WatchlistItem.find();
-
-      const uniqueTickers = [
-        ...new Set(
-          watchlistItems.map(
-            (item) =>
-              item.ticker
-          )
-        ),
-      ];
-
-      for (const ticker of uniqueTickers) {
-        try {
-          const existingCount =
-            await PriceSnapshot.countDocuments(
-              {
-                ticker,
-
-                source:
-                  "yahoo-finance-historical",
-              }
-            );
-
-          if (
-            existingCount >= 20
-          ) {
-            console.log(
-              `${ticker} already has enough history.`
-            );
-
-            continue;
-          }
-
-          console.log(
-            `Loading historical data for ${ticker}...`
-          );
-
-          const result =
-            await yahooFinance.chart(
-              `${ticker}.NS`,
-              {
-                period1:
-                  new Date(
-                    Date.now() -
-                      35 *
-                        24 *
-                        60 *
-                        60 *
-                        1000
-                  ),
-
-                period2:
-                  new Date(),
-
-                interval: "1d",
-              }
-            );
-
-          const quotes =
-            result.quotes || [];
-
-          for (const quote of quotes) {
-            if (
-              typeof quote.close !==
-                "number" ||
-              !Number.isFinite(
-                quote.close
-              )
-            ) {
-              continue;
-            }
-
-            const capturedAt =
-              new Date(
-                quote.date
-              );
-
-            const exists =
-              await PriceSnapshot.findOne(
-                {
-                  ticker,
-                  capturedAt,
-                }
-              );
-
-            if (exists) {
-              continue;
-            }
-
-            await PriceSnapshot.create({
-              ticker,
-
-              price:
-                quote.close,
-
-              previousClose:
-                null,
-
-              volume:
-                typeof quote.volume ===
-                "number"
-                  ? quote.volume
-                  : 0,
-
-              capturedAt,
-
-              sourceLagSeconds:
-                null,
-
-              source:
-                "yahoo-finance-historical",
-            });
-          }
-
-          console.log(
-            `Historical data loaded for ${ticker}: ${quotes.length} records`
-          );
-        } catch (error) {
-          console.error(
-            `Historical bootstrap failed for ${ticker}:`,
-            error.message
-          );
-        }
-      }
-
-      console.log(
-        "Historical bootstrap completed."
-      );
-    } catch (error) {
-      console.error(
-        "Historical bootstrap failed:",
-        error.message
-      );
-    }
-  };
-
-/* =========================================================
-   Live stock ingestion
+   Live market ingestion
    ========================================================= */
 
 const runMarketIngestion =
@@ -436,6 +484,15 @@ const runMarketIngestion =
 
       for (const ticker of uniqueTickers) {
         try {
+          /*
+           * Make sure newly added stocks
+           * eventually get historical data
+           * even if the first attempt failed.
+           */
+          await loadHistoricalDataForTicker(
+            ticker
+          );
+
           const marketData =
             await getMarketData(
               ticker
@@ -475,7 +532,8 @@ const runMarketIngestion =
             capturedAt:
               new Date(),
 
-            sourceLagSeconds: 0,
+            sourceLagSeconds:
+              0,
 
             source:
               "yahoo-finance",
@@ -491,7 +549,7 @@ const runMarketIngestion =
           );
         } catch (error) {
           console.error(
-            `Failed to fetch ${ticker}:`,
+            `Failed to process ${ticker}:`,
             error.message
           );
         }
@@ -529,6 +587,10 @@ cron.schedule(
 
 module.exports = {
   runMarketIngestion,
+
   bootstrapHistoricalData,
+
+  loadHistoricalDataForTicker,
+
   checkPriceAlerts,
 };

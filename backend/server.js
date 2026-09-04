@@ -19,6 +19,7 @@ const UserViewState = require("./models/UserViewState");
 const SignalEvent = require("./models/SignalEvent");
 const UserPreference = require("./models/UserPreference");
 const UserFeedback = require("./models/UserFeedback");
+const Activity = require("./models/Activity");
 
 const { getMarketData } = require("./services/marketData");
 
@@ -32,39 +33,24 @@ const YahooFinance =
 
 const yahooFinance = new YahooFinance();
 
-/* =========================================================
-   App configuration
-   ========================================================= */
-
 const app = express();
-const PORT = process.env.PORT || 5000;
+
+const PORT =
+  process.env.PORT || 5000;
 
 const JWT_SECRET =
-  process.env.JWT_SECRET || "change-this-secret";
+  process.env.JWT_SECRET ||
+  "change-this-secret";
 
 const PERSONALIZATION_THRESHOLD = 1;
 
-/* =========================================================
-   Web Push configuration
-   ========================================================= */
+app.use(
+  cors({
+    origin: true,
+  })
+);
 
-if (
-  process.env.VAPID_PUBLIC_KEY &&
-  process.env.VAPID_PRIVATE_KEY &&
-  process.env.VAPID_EMAIL
-) {
-  webpush.setVapidDetails(
-    process.env.VAPID_EMAIL,
-    process.env.VAPID_PUBLIC_KEY,
-    process.env.VAPID_PRIVATE_KEY
-  );
-
-  console.log("Web Push configured.");
-} else {
-  console.warn(
-    "Web Push keys are missing. Browser notifications are disabled."
-  );
-}
+app.use(express.json());
 
 /* =========================================================
    Market context
@@ -123,16 +109,26 @@ const SECTOR_INDICES = {
 };
 
 /* =========================================================
-   Middleware
+   Web Push
    ========================================================= */
 
-app.use(
-  cors({
-    origin: true,
-  })
-);
+if (
+  process.env.VAPID_PUBLIC_KEY &&
+  process.env.VAPID_PRIVATE_KEY &&
+  process.env.VAPID_EMAIL
+) {
+  webpush.setVapidDetails(
+    process.env.VAPID_EMAIL,
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
 
-app.use(express.json());
+  console.log("Web Push configured.");
+} else {
+  console.warn(
+    "Web Push keys are missing. Browser notifications are disabled."
+  );
+}
 
 /* =========================================================
    Helpers
@@ -177,7 +173,11 @@ const getUserIdFromToken = (req) => {
   const authorization =
     req.headers.authorization || "";
 
-  if (!authorization.startsWith("Bearer ")) {
+  if (
+    !authorization.startsWith(
+      "Bearer "
+    )
+  ) {
     return null;
   }
 
@@ -206,9 +206,9 @@ const optionalAuth = (
     getUserIdFromToken(req);
 
   req.userId = userId;
-  req.isAuthenticated = Boolean(
-    userId
-  );
+
+  req.isAuthenticated =
+    Boolean(userId);
 
   next();
 };
@@ -234,24 +234,63 @@ const requireAuth = (
   next();
 };
 
-const normalizeEmail = (email) => {
+const normalizeEmail = (
+  email
+) => {
   return String(email || "")
     .trim()
     .toLowerCase();
 };
 
-const isValidEmail = (email) => {
+const isValidEmail = (
+  email
+) => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
     email
   );
 };
 
-const isValidPassword = (password) => {
+const isValidPassword = (
+  password
+) => {
   return (
     typeof password === "string" &&
     password.length >= 8
   );
 };
+
+/* =========================================================
+   Activity
+   ========================================================= */
+
+const createActivity = async ({
+  userId,
+  type,
+  ticker = null,
+  message,
+}) => {
+  if (!userId) {
+    return;
+  }
+
+  try {
+    await Activity.create({
+      userId,
+      type,
+      ticker,
+      message,
+    });
+  } catch (error) {
+    console.error(
+      "Activity error:",
+      error.message
+    );
+  }
+};
+
+/* =========================================================
+   Market context
+   ========================================================= */
 
 const getMarketContext = async (
   ticker
@@ -268,9 +307,10 @@ const getMarketContext = async (
         context.symbol
       );
 
-    const changePercent = Number(
-      quote.regularMarketChangePercent
-    );
+    const changePercent =
+      Number(
+        quote.regularMarketChangePercent
+      );
 
     return {
       name: context.name,
@@ -295,7 +335,7 @@ const getMarketContext = async (
 };
 
 /* =========================================================
-   Browser push notification helper
+   Push notification
    ========================================================= */
 
 const sendPushNotification = async (
@@ -316,24 +356,25 @@ const sendPushNotification = async (
       userId,
     });
 
-  const payload = JSON.stringify({
-    title,
-    body: message,
-    icon: "/nudge-icon.png",
-    badge: "/nudge-icon.png",
-  });
+  const payload =
+    JSON.stringify({
+      title,
+      body: message,
+      icon: "/nudge-icon.png",
+      badge: "/nudge-icon.png",
+    });
 
-  for (const subscription of subscriptions) {
+  for (
+    const subscription of subscriptions
+  ) {
     try {
       await webpush.sendNotification(
         {
           endpoint:
             subscription.endpoint,
-
           keys: {
             p256dh:
               subscription.keys.p256dh,
-
             auth:
               subscription.keys.auth,
           },
@@ -469,6 +510,7 @@ const getSafeMarketData = async (
         price: null,
         volume: null,
         changePercent: null,
+        previousClose: null,
         stale: true,
         unavailable: true,
       };
@@ -478,14 +520,23 @@ const getSafeMarketData = async (
       ticker,
       price:
         latestSnapshot.price,
+
       volume:
         latestSnapshot.volume,
-      changePercent: null,
-      previousClose: null,
+
+      changePercent:
+        null,
+
+      previousClose:
+        latestSnapshot.previousClose ??
+        null,
+
       capturedAt:
         latestSnapshot.capturedAt,
+
       source:
         latestSnapshot.source,
+
       stale: true,
       unavailable: false,
     };
@@ -610,6 +661,13 @@ app.post(
       const token =
         createToken(user);
 
+      await createActivity({
+        userId: user._id,
+        type: "login",
+        message:
+          "Logged in to Nudge.",
+      });
+
       return res.json({
         token,
         user: {
@@ -673,7 +731,7 @@ app.get(
 );
 
 /* =========================================================
-   Guest watchlist migration
+   Guest migration
    ========================================================= */
 
 app.post(
@@ -699,7 +757,9 @@ app.post(
 
       let migrated = 0;
 
-      for (const item of guestItems) {
+      for (
+        const item of guestItems
+      ) {
         const exists =
           await WatchlistItem.findOne({
             userId:
@@ -750,12 +810,9 @@ app.get(
   optionalAuth,
   async (req, res) => {
     try {
-      const guestId =
-        req.headers["x-guest-id"];
-
       const userId =
         req.userId ||
-        guestId ||
+        req.headers["x-guest-id"] ||
         "demo-user";
 
       const watchlist =
@@ -765,7 +822,9 @@ app.get(
           createdAt: 1,
         });
 
-      return res.json(watchlist);
+      return res.json(
+        watchlist
+      );
     } catch (error) {
       console.error(
         "Fetch watchlist error:",
@@ -792,12 +851,9 @@ app.post(
           .trim()
           .toUpperCase();
 
-      const guestId =
-        req.headers["x-guest-id"];
-
       const userId =
         req.userId ||
-        guestId ||
+        req.headers["x-guest-id"] ||
         "demo-user";
 
       if (
@@ -830,7 +886,47 @@ app.post(
           ticker,
         });
 
-      return res.status(201).json(item);
+      if (req.isAuthenticated) {
+        await createActivity({
+          userId,
+          type:
+            "watchlist_added",
+          ticker,
+          message:
+            `${ticker} added to your watchlist.`,
+        });
+      }
+
+      let historyReady = false;
+
+      try {
+        const {
+          loadHistoricalDataForTicker,
+        } =
+          require(
+            "./jobs/marketIngestion"
+          );
+
+        const historyResult =
+          await loadHistoricalDataForTicker(
+            ticker
+          );
+
+        historyReady = Boolean(
+          historyResult?.success &&
+          historyResult.count >= 20
+        );
+      } catch (historyError) {
+        console.error(
+          `Could not initialize history for ${ticker}:`,
+          historyError.message
+        );
+      }
+
+      return res.status(201).json({
+        ...item.toObject(),
+        historyReady,
+      });
     } catch (error) {
       console.error(
         "Add watchlist error:",
@@ -850,12 +946,9 @@ app.delete(
   optionalAuth,
   async (req, res) => {
     try {
-      const guestId =
-        req.headers["x-guest-id"];
-
       const userId =
         req.userId ||
-        guestId ||
+        req.headers["x-guest-id"] ||
         "demo-user";
 
       const deletedStock =
@@ -868,6 +961,18 @@ app.delete(
         return res.status(404).json({
           message:
             "Stock not found.",
+        });
+      }
+
+      if (req.isAuthenticated) {
+        await createActivity({
+          userId,
+          type:
+            "watchlist_removed",
+          ticker:
+            deletedStock.ticker,
+          message:
+            `${deletedStock.ticker} removed from your watchlist.`,
         });
       }
 
@@ -911,8 +1016,7 @@ app.get(
           .sort({
             capturedAt: 1,
           })
-          .limit(35)
-          .lean();
+          .limit(35);
 
       const history =
         snapshots.map(
@@ -924,7 +1028,9 @@ app.get(
           })
         );
 
-      return res.json(history);
+      return res.json(
+        history
+      );
     } catch (error) {
       console.error(
         "Price history error:",
@@ -938,6 +1044,23 @@ app.get(
     }
   }
 );
+
+/* =========================================================
+   Historical helper
+   ========================================================= */
+
+const getHistoricalSnapshots =
+  async (ticker) => {
+    return PriceSnapshot.find({
+      ticker,
+      source:
+        "yahoo-finance-historical",
+    })
+      .sort({
+        capturedAt: -1,
+      })
+      .limit(31);
+  };
 
 /* =========================================================
    Market data
@@ -963,15 +1086,9 @@ app.get(
       );
 
       const snapshots =
-        await PriceSnapshot.find({
-          ticker,
-          source:
-            "yahoo-finance-historical",
-        })
-          .sort({
-            capturedAt: -1,
-          })
-          .limit(31);
+        await getHistoricalSnapshots(
+          ticker
+        );
 
       const historicalPrices =
         snapshots
@@ -1022,14 +1139,23 @@ app.get(
       await PriceSnapshot.create({
         ticker:
           marketData.ticker,
+
         price:
           marketData.price,
+
+        previousClose:
+          marketData.previousClose ??
+          null,
+
         volume:
           marketData.volume || 0,
+
         capturedAt:
           new Date(),
+
         sourceLagSeconds:
           null,
+
         source:
           "yahoo-finance",
       });
@@ -1072,6 +1198,9 @@ app.get(
         ticker,
         price:
           latestSnapshot.price,
+        previousClose:
+          latestSnapshot.previousClose ??
+          null,
         volume:
           latestSnapshot.volume,
         capturedAt:
@@ -1117,15 +1246,9 @@ app.post(
       );
 
       const snapshots =
-        await PriceSnapshot.find({
-          ticker,
-          source:
-            "yahoo-finance-historical",
-        })
-          .sort({
-            capturedAt: -1,
-          })
-          .limit(31);
+        await getHistoricalSnapshots(
+          ticker
+        );
 
       const historicalPrices =
         snapshots
@@ -1188,12 +1311,6 @@ app.post(
           }
         );
 
-      const previousView =
-        await UserViewState.findOne({
-          userId,
-          ticker,
-        });
-
       const interestWeight =
         Math.max(
           0,
@@ -1210,6 +1327,12 @@ app.post(
           signal.signalScore,
           interestWeight
         );
+
+      const previousView =
+        await UserViewState.findOne({
+          userId,
+          ticker,
+        });
 
       const viewState =
         await UserViewState.findOneAndUpdate(
@@ -1230,12 +1353,6 @@ app.post(
             upsert: true,
           }
         );
-
-      const userHasSeenStock =
-        Boolean(previousView);
-
-      const objectivelyMeaningful =
-        signal.urgency !== "Low";
 
       let meaningfulSinceLastView =
         false;
@@ -1268,15 +1385,17 @@ app.post(
 
       const shouldSurfaceSignal =
         hasEnoughHistory &&
-        userHasSeenStock &&
-        objectivelyMeaningful &&
+        Boolean(previousView) &&
+        signal.urgency !== "Low" &&
         meaningfulSinceLastView &&
         personalizedScore >=
           PERSONALIZATION_THRESHOLD;
 
       let signalEvent = null;
 
-      if (shouldSurfaceSignal) {
+      if (
+        shouldSurfaceSignal
+      ) {
         signalEvent =
           await SignalEvent.create({
             userId,
@@ -1296,10 +1415,18 @@ app.post(
                 2
               )}.`,
 
-            shownToUser:
-              true,
+            shownToUser: true,
           });
       }
+
+      await createActivity({
+        userId,
+        type:
+          "market_checked",
+        ticker,
+        message:
+          `Checked ${ticker} market data.`,
+      });
 
       return res.json({
         viewState,
@@ -1346,7 +1473,9 @@ app.get(
           })
           .limit(20);
 
-      return res.json(signals);
+      return res.json(
+        signals
+      );
     } catch (error) {
       console.error(
         "Signal history error:",
@@ -1370,15 +1499,16 @@ app.post(
   requireAuth,
   async (req, res) => {
     try {
-      const {
-        feedback,
-      } = req.body;
+      const feedback =
+        req.body.feedback;
 
       if (
         ![
           "useful",
           "not_for_me",
-        ].includes(feedback)
+        ].includes(
+          feedback
+        )
       ) {
         return res.status(400).json({
           message:
@@ -1405,6 +1535,7 @@ app.post(
         await UserFeedback.findOne({
           userId:
             req.userId,
+
           signalEventId:
             signal._id,
         });
@@ -1463,11 +1594,31 @@ app.post(
 
       await preference.save();
 
+      await createActivity({
+        userId:
+          req.userId,
+
+        type:
+          "feedback_given",
+
+        ticker:
+          signal.ticker,
+
+        message:
+          `Marked ${signal.ticker} signal as ${
+            feedback === "useful"
+              ? "useful"
+              : "not for me"
+          }.`,
+      });
+
       return res.json({
         message:
           "Feedback recorded.",
+
         feedback:
           savedFeedback,
+
         priceMoveWeight:
           preference.priceMoveWeight,
       });
@@ -1583,14 +1734,14 @@ app.delete(
     try {
       const endpoint =
         String(
-          req.body.endpoint ||
-            ""
+          req.body.endpoint || ""
         ).trim();
 
       if (endpoint) {
         await PushSubscription.deleteOne({
           userId:
             req.userId,
+
           endpoint,
         });
       }
@@ -1632,7 +1783,9 @@ app.get(
           })
           .lean();
 
-      return res.json(alerts);
+      return res.json(
+        alerts
+      );
     } catch (error) {
       console.error(
         "Fetch alerts error:",
@@ -1718,7 +1871,22 @@ app.post(
           active: true,
         });
 
-      return res.status(201).json(alert);
+      await createActivity({
+        userId:
+          req.userId,
+
+        type:
+          "alert_created",
+
+        ticker,
+
+        message:
+          `Created a ${condition} ₹${targetPrice} alert for ${ticker}.`,
+      });
+
+      return res
+        .status(201)
+        .json(alert);
     } catch (error) {
       console.error(
         "Create alert error:",
@@ -1753,6 +1921,20 @@ app.delete(
             "Alert not found.",
         });
       }
+
+      await createActivity({
+        userId:
+          req.userId,
+
+        type:
+          "alert_removed",
+
+        ticker:
+          deletedAlert.ticker,
+
+        message:
+          `Removed the ${deletedAlert.ticker} price alert.`,
+      });
 
       return res.json({
         message:
@@ -1803,7 +1985,9 @@ app.patch(
 
       await alert.save();
 
-      return res.json(alert);
+      return res.json(
+        alert
+      );
     } catch (error) {
       console.error(
         "Toggle alert error:",
@@ -1819,6 +2003,43 @@ app.patch(
 );
 
 /* =========================================================
+   Activity
+   ========================================================= */
+
+app.get(
+  "/api/activity",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const activity =
+        await Activity.find({
+          userId:
+            req.userId,
+        })
+          .sort({
+            createdAt: -1,
+          })
+          .limit(10)
+          .lean();
+
+      return res.json(
+        activity
+      );
+    } catch (error) {
+      console.error(
+        "Activity fetch error:",
+        error.message
+      );
+
+      return res.status(500).json({
+        message:
+          "Could not fetch activity.",
+      });
+    }
+  }
+);
+
+/* =========================================================
    Dashboard
    ========================================================= */
 
@@ -1827,17 +2048,17 @@ app.get(
   optionalAuth,
   async (req, res) => {
     try {
-      const guestId =
-        req.headers["x-guest-id"];
-
       const userId =
         req.userId ||
-        guestId ||
+        req.headers["x-guest-id"] ||
         "demo-user";
 
-      let interestWeight = 0.5;
+      let interestWeight =
+        0.5;
 
-      if (req.isAuthenticated) {
+      if (
+        req.isAuthenticated
+      ) {
         const preference =
           await UserPreference.findOneAndUpdate(
             {
@@ -1855,43 +2076,39 @@ app.get(
             }
           );
 
-        interestWeight = Math.max(
-          0,
-          Math.min(
-            1,
-            Number(
-              preference.priceMoveWeight
-            ) || 0.5
-          )
-        );
+        interestWeight =
+          Math.max(
+            0,
+            Math.min(
+              1,
+              Number(
+                preference.priceMoveWeight
+              ) || 0.5
+            )
+          );
       }
-
-      /* -----------------------------------------------------
-         Watchlist
-         ----------------------------------------------------- */
 
       const watchlist =
         await WatchlistItem.find({
           userId,
         }).lean();
 
-      /* -----------------------------------------------------
-         Market overview
-         ----------------------------------------------------- */
-
       const marketSymbols = [
         {
           symbol: "^NSEI",
           name: "NIFTY 50",
         },
+
         {
           symbol: "^BSESN",
           name: "SENSEX",
         },
+
         {
           symbol: "^NSEBANK",
           name: "NIFTY BANK",
         },
+
         {
           symbol: "^CNXIT",
           name: "NIFTY IT",
@@ -1943,7 +2160,8 @@ app.get(
                         )
                       : null,
 
-                  stale: false,
+                  stale:
+                    false,
                 };
               } catch (error) {
                 console.error(
@@ -1951,22 +2169,48 @@ app.get(
                   error.message
                 );
 
+                const cached =
+                  await PriceSnapshot.findOne(
+                    {
+                      ticker:
+                        symbol,
+                    }
+                  ).sort({
+                    capturedAt: -1,
+                  });
+
                 return {
                   symbol,
                   name,
-                  price: null,
-                  changePercent:
+
+                  price:
+                    cached?.price ??
                     null,
-                  stale: true,
+
+                  changePercent:
+                    cached?.previousClose &&
+                    cached.price != null
+                      ? Number(
+                          (
+                            (
+                              (
+                                cached.price -
+                                cached.previousClose
+                              ) /
+                              cached.previousClose
+                            ) *
+                            100
+                          ).toFixed(2)
+                        )
+                      : null,
+
+                  stale:
+                    true,
                 };
               }
             }
           )
         );
-
-      /* -----------------------------------------------------
-         Summary
-         ----------------------------------------------------- */
 
       let up = 0;
       let down = 0;
@@ -1978,11 +2222,9 @@ app.get(
       const stocks = [];
       const nudges = [];
 
-      /* -----------------------------------------------------
-         Analyze watchlist
-         ----------------------------------------------------- */
-
-      for (const stock of watchlist) {
+      for (
+        const stock of watchlist
+      ) {
         const ticker =
           stock.ticker;
 
@@ -2028,11 +2270,13 @@ app.get(
             null
           ) {
             if (
-              changePercent > 0
+              changePercent >
+              0
             ) {
               up++;
             } else if (
-              changePercent < 0
+              changePercent <
+              0
             ) {
               down++;
             } else {
@@ -2046,6 +2290,7 @@ app.get(
             ) {
               best = {
                 ticker,
+
                 changePercent:
                   Number(
                     changePercent.toFixed(
@@ -2062,6 +2307,7 @@ app.get(
             ) {
               worst = {
                 ticker,
+
                 changePercent:
                   Number(
                     changePercent.toFixed(
@@ -2072,21 +2318,10 @@ app.get(
             }
           }
 
-          /* -----------------------------------------------
-             Historical data
-             ----------------------------------------------- */
-
           const snapshots =
-            await PriceSnapshot.find({
-              ticker,
-
-              source:
-                "yahoo-finance-historical",
-            })
-              .sort({
-                capturedAt: -1,
-              })
-              .limit(31);
+            await getHistoricalSnapshots(
+              ticker
+            );
 
           const historicalPrices =
             snapshots
@@ -2119,18 +2354,17 @@ app.get(
             historicalVolumes.length >=
               20;
 
-          /* -----------------------------------------------
-             Signal
-             ----------------------------------------------- */
-
           let signal = {
             signalScore: 0,
-            urgency: "Low",
+
+            urgency:
+              "Low",
 
             reason:
               "Not enough history yet to determine a meaningful change.",
 
             zScore: 0,
+
             volumeRatio: 0,
           };
 
@@ -2163,14 +2397,12 @@ app.get(
               });
           }
 
-          /* -----------------------------------------------
-             Previous view
-             ----------------------------------------------- */
-
           let previousView =
             null;
 
-          if (req.isAuthenticated) {
+          if (
+            req.isAuthenticated
+          ) {
             previousView =
               await UserViewState.findOne(
                 {
@@ -2201,7 +2433,8 @@ app.get(
               );
 
             meaningfulSinceLastView =
-              priceChange >= 0.1;
+              priceChange >=
+              0.1;
           }
 
           const personalizedScore =
@@ -2215,75 +2448,74 @@ app.get(
             !stale &&
             !unavailable &&
             hasEnoughHistory &&
-            Boolean(previousView) &&
+            Boolean(
+              previousView
+            ) &&
             signal.urgency !==
               "Low" &&
             meaningfulSinceLastView &&
             personalizedScore >=
               PERSONALIZATION_THRESHOLD;
 
-          /* -----------------------------------------------
-             Context + suggestion
-             ----------------------------------------------- */
-
-          if (shouldSurface) {
+          if (
+            shouldSurface
+          ) {
             const marketContext =
               await getMarketContext(
                 ticker
               );
 
-            let contextText =
-              "Broader market context is unavailable.";
+            const stockChange =
+              Number(
+                changePercent
+              );
 
-            let suggestion =
-              "Take a closer look at this movement.";
-
-            if (marketContext) {
-              const stockChange =
-                Number(
-                  changePercent
-                );
-
-              const contextChange =
-                Number(
-                  marketContext.changePercent
-                );
-
-              const relativeDifference =
-                stockChange -
-                contextChange;
-
-              contextText =
-                `${ticker} moved ${
-                  stockChange >= 0
-                    ? "+"
-                    : ""
-                }${stockChange.toFixed(
-                  2
-                )}%, while ${
-                  marketContext.name
-                } moved ${
-                  contextChange >= 0
-                    ? "+"
-                    : ""
-                }${contextChange.toFixed(
-                  2
-                )}%.`;
-
-              if (
-                Math.abs(
-                  relativeDifference
-                ) >= 1
-              ) {
-                suggestion =
-                  relativeDifference >
+            const contextChange =
+              Number(
+                marketContext?.changePercent ??
                   0
-                    ? "The stock is moving noticeably more than its broader market context. It may be worth a closer look."
-                    : "The stock is moving noticeably more than its broader market context on the downside. It may be worth a closer look.";
-              } else {
-                suggestion =
-                  "The move is unusual for the stock, even though the broader market is moving in a similar direction.";
-              }
+              );
+
+            const relativeDifference =
+              stockChange -
+              contextChange;
+
+            const contextText =
+              marketContext
+                ? `${ticker} moved ${
+                    stockChange >=
+                    0
+                      ? "+"
+                      : ""
+                  }${stockChange.toFixed(
+                    2
+                  )}%, while ${
+                    marketContext.name
+                  } moved ${
+                    contextChange >=
+                    0
+                      ? "+"
+                      : ""
+                  }${contextChange.toFixed(
+                    2
+                  )}%.`
+                : "Broader market context is unavailable.";
+
+            let suggestion;
+
+            if (
+              Math.abs(
+                relativeDifference
+              ) >= 1
+            ) {
+              suggestion =
+                relativeDifference >
+                0
+                  ? "The stock is moving noticeably more than its broader market context. It may be worth a closer look."
+                  : "The stock is moving noticeably more than its broader market context on the downside. It may be worth a closer look.";
+            } else {
+              suggestion =
+                "The move is unusual for the stock, even though the broader market is moving in a similar direction.";
             }
 
             nudges.push({
@@ -2421,6 +2653,7 @@ app.get(
 
       return res.status(500).json({
         status: "error",
+
         message:
           "Failed to load dashboard.",
       });
@@ -2429,7 +2662,24 @@ app.get(
 );
 
 /* =========================================================
-   MongoDB connection
+   Health check
+   ========================================================= */
+
+app.get(
+  "/",
+  (req, res) => {
+    res.json({
+      message:
+        "Nudge backend is running.",
+
+      database:
+        "MongoDB",
+    });
+  }
+);
+
+/* =========================================================
+   MongoDB
    ========================================================= */
 
 console.log(
@@ -2440,43 +2690,37 @@ mongoose
   .connect(
     process.env.MONGO_URI,
     {
-      serverSelectionTimeoutMS: 10000,
+      serverSelectionTimeoutMS:
+        10000,
     }
   )
-  .then(async () => {
-    console.log(
-      "MongoDB connected successfully!"
-    );
+  .then(
+    async () => {
+      console.log(
+        "MongoDB connected successfully!"
+      );
 
-    const {
-      runMarketIngestion,
-      bootstrapHistoricalData,
-    } = require(
-      "./jobs/marketIngestion"
-    );
+      const {
+        runMarketIngestion,
+        bootstrapHistoricalData,
+      } =
+        require(
+          "./jobs/marketIngestion"
+        );
 
-    await bootstrapHistoricalData();
+      await bootstrapHistoricalData();
 
-    runMarketIngestion();
-  })
-  .catch((error) => {
-    console.error(
-      "MongoDB connection failed:",
-      error.message
-    );
-  });
-
-/* =========================================================
-   Health check
-   ========================================================= */
-
-app.get("/", (req, res) => {
-  res.json({
-    message:
-      "Nudge backend is running.",
-    database: "MongoDB",
-  });
-});
+      runMarketIngestion();
+    }
+  )
+  .catch(
+    (error) => {
+      console.error(
+        "MongoDB connection failed:",
+        error.message
+      );
+    }
+  );
 
 /* =========================================================
    Start server

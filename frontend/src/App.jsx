@@ -880,69 +880,176 @@ function App() {
      Dashboard loading
      ======================================================= */
 
-  const loadDashboard =
-    useCallback(async () => {
-      try {
-        const [
-          watchlistResponse,
-          dashboardResponse,
-        ] = await Promise.all([
-          fetch(
-            `${API_URL}/api/watchlist`,
-            {
-              headers:
-                getRequestHeaders(),
-            }
-          ),
+const loadDashboard = useCallback(async () => {
+  try {
+    const [
+      watchlistResponse,
+      dashboardResponse,
+    ] = await Promise.all([
+      fetch(
+        `${API_URL}/api/watchlist`,
+        {
+          headers: getRequestHeaders(),
+        }
+      ),
 
-          fetch(
-            `${API_URL}/api/dashboard`,
-            {
-              headers:
-                getRequestHeaders(),
-            }
-          ),
-        ]);
+      fetch(
+        `${API_URL}/api/dashboard`,
+        {
+          headers: getRequestHeaders(),
+        }
+      ),
+    ]);
 
-        const watchlistData =
-          await watchlistResponse.json();
+    const watchlistData =
+      await watchlistResponse.json();
 
-        const dashboardData =
-          await dashboardResponse.json();
+    const dashboardData =
+      await dashboardResponse.json();
 
-        if (
-          watchlistResponse.ok
-        ) {
-          setWatchlist(
-            watchlistData
-          );
+    /* -----------------------------------------------------
+       Watchlist
+       ----------------------------------------------------- */
+
+    if (watchlistResponse.ok) {
+      setWatchlist(watchlistData);
+    }
+
+    /* -----------------------------------------------------
+       Dashboard
+       ----------------------------------------------------- */
+
+    if (dashboardResponse.ok) {
+      setDashboard(dashboardData);
+      setErrorMessage("");
+
+      /* ---------------------------------------------------
+         Populate stock cards immediately.
+
+         dashboard.stocks already contains:
+         - price
+         - changePercent
+         - stale
+         - unavailable
+         - hasEnoughHistory
+         --------------------------------------------------- */
+
+      if (
+        Array.isArray(
+          dashboardData.stocks
+        )
+      ) {
+        const stockMarketData = {};
+
+        for (const stock of dashboardData.stocks) {
+          stockMarketData[
+            stock.ticker
+          ] = {
+            ticker: stock.ticker,
+            price: stock.price,
+            changePercent:
+              stock.changePercent,
+            stale: Boolean(
+              stock.stale
+            ),
+            unavailable: Boolean(
+              stock.unavailable
+            ),
+            hasEnoughHistory:
+              Boolean(
+                stock.hasEnoughHistory
+              ),
+            capturedAt:
+              stock.capturedAt ||
+              null,
+          };
         }
 
-        if (
-          dashboardResponse.ok
-        ) {
-          setDashboard(
-            dashboardData
-          );
-
-          setErrorMessage("");
-        } else {
-          setErrorMessage(
-            dashboardData.message ||
-              "Could not load market dashboard."
-          );
-        }
-      } catch (error) {
-        console.error(
-          "Dashboard loading error:",
-          error
-        );
-
-        setErrorMessage(
-          "Could not load market dashboard."
+        setMarketData(
+          (previous) => ({
+            ...previous,
+            ...stockMarketData,
+          })
         );
       }
-    }, []);
+    } else {
+      setErrorMessage(
+        dashboardData.message ||
+          "Could not load market dashboard."
+      );
+    }
+  } catch (error) {
+    console.error(
+      "Dashboard loading error:",
+      error
+    );
+
+    setErrorMessage(
+      "Could not load market dashboard."
+    );
+  }
+}, []);
+
+const loadPriceHistory =
+  useCallback(async (stockTicker) => {
+    try {
+      const response =
+        await fetch(
+          `${API_URL}/api/market/${stockTicker}/history`,
+          {
+            headers:
+              getRequestHeaders(),
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        return;
+      }
+
+      setPriceHistory(
+        (previous) => ({
+          ...previous,
+          [stockTicker]:
+            data,
+        })
+      );
+    } catch (error) {
+      console.error(
+        `Price history error for ${stockTicker}:`,
+        error
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+  if (
+    !authReady ||
+    watchlist.length === 0
+  ) {
+    return;
+  }
+
+  const loadAllHistory =
+    async () => {
+      await Promise.all(
+        watchlist.map(
+          (stock) =>
+            loadPriceHistory(
+              stock.ticker
+            )
+        )
+      );
+    };
+
+  loadAllHistory();
+}, [
+  authReady,
+  watchlist,
+  loadPriceHistory,
+]);
 
   /* =======================================================
      Alert loading
@@ -1271,91 +1378,125 @@ function App() {
      Add stock
      ======================================================= */
 
-  const addStock =
-    async (event) => {
-      event.preventDefault();
+  const addStock = async (event) => {
+  event.preventDefault();
 
-      setErrorMessage("");
+  setErrorMessage("");
 
-      const cleanTicker =
-        ticker
-          .trim()
-          .toUpperCase();
+  const cleanTicker =
+    ticker.trim().toUpperCase();
 
-      if (!cleanTicker) {
-        setErrorMessage(
-          "Please enter a stock ticker."
-        );
+  if (!cleanTicker) {
+    setErrorMessage(
+      "Please enter a stock ticker."
+    );
+    return;
+  }
 
-        return;
+  try {
+    /* -----------------------------------------------------
+       Add the stock
+       ----------------------------------------------------- */
+
+    const response = await fetch(
+      `${API_URL}/api/watchlist`,
+      {
+        method: "POST",
+        headers:
+          getRequestHeaders(true),
+        body: JSON.stringify({
+          ticker: cleanTicker,
+        }),
       }
+    );
 
-      try {
-        const response =
-          await fetch(
-            `${API_URL}/api/watchlist`,
-            {
-              method: "POST",
-              headers:
-                getRequestHeaders(
-                  true
-                ),
-              body: JSON.stringify({
-                ticker:
-                  cleanTicker,
-              }),
-            }
-          );
+    const data =
+      await response.json();
 
-        const data =
-          await response.json();
+    if (!response.ok) {
+      setErrorMessage(
+        data.message ||
+          "Could not add this stock."
+      );
+      return;
+    }
 
-        if (!response.ok) {
-          setErrorMessage(
-            data.message ||
-              "Could not add this stock."
-          );
+    /* -----------------------------------------------------
+       Update the watchlist immediately
+       ----------------------------------------------------- */
 
-          return;
-        }
+    setWatchlist((previous) => [
+      ...previous,
+      data,
+    ]);
 
-        setWatchlist(
-          (previous) => [
-            ...previous,
-            data,
-          ]
-        );
+    setTicker("");
 
-        setTicker("");
+    /* -----------------------------------------------------
+       Guest reminder
+       ----------------------------------------------------- */
 
-        if (!authenticated) {
-          localStorage.setItem(
-            GUEST_USED_KEY,
-            "true"
-          );
+    if (!authenticated) {
+      localStorage.setItem(
+        GUEST_USED_KEY,
+        "true"
+      );
 
-          localStorage.setItem(
-            GUEST_MODE_KEY,
-            "true"
-          );
+      localStorage.setItem(
+        GUEST_MODE_KEY,
+        "true"
+      );
 
-          setShowLoginReminder(
-            true
-          );
-        }
+      setShowLoginReminder(true);
+    }
 
-        await loadDashboard();
-      } catch (error) {
-        console.error(
-          "Add stock error:",
-          error
-        );
+    /* -----------------------------------------------------
+       Fetch the new stock's current data
+       ----------------------------------------------------- */
 
-        setErrorMessage(
-          "Could not connect to the market service. Please try again."
-        );
-      }
-    };
+    await fetchMarketData(
+      cleanTicker
+    );
+
+    /* -----------------------------------------------------
+       Reload dashboard so:
+       - summary updates
+       - stock count updates
+       - nudges update
+       ----------------------------------------------------- */
+
+    await loadDashboard();
+
+    /*
+     * History is normally loaded automatically
+     * by the watchlist/history effect.
+     *
+     * Calling it here as well makes the new
+     * stock appear faster.
+     */
+    await loadPriceHistory(
+      cleanTicker
+    );
+
+    setToast(
+      `${cleanTicker} added to your watchlist.`
+    );
+
+    setTimeout(() => {
+      setToast("");
+    }, 2500);
+  } catch (error) {
+    console.error(
+      "Add stock error:",
+      error
+    );
+
+    setErrorMessage(
+      "Could not connect to the market service. Please try again."
+    );
+  }
+};
+
 
   /* =======================================================
      Fetch market data
@@ -1403,36 +1544,9 @@ function App() {
            Price history
            ------------------------------------------------- */
 
-        try {
-          const historyResponse =
-            await fetch(
-              `${API_URL}/api/market/${stockTicker}/history`,
-              {
-                headers:
-                  getRequestHeaders(),
-              }
-            );
-
-          const historyData =
-            await historyResponse.json();
-
-          if (
-            historyResponse.ok
-          ) {
-            setPriceHistory(
-              (previous) => ({
-                ...previous,
-                [stockTicker]:
-                  historyData,
-              })
-            );
-          }
-        } catch (historyError) {
-          console.error(
-            "Price history error:",
-            historyError
-          );
-        }
+        await loadPriceHistory(
+  stockTicker
+);
 
         /* -------------------------------------------------
            Logged-in personalization
@@ -2450,7 +2564,7 @@ function App() {
                     {market.changePercent !== null
   ? `${positive ? "+" : ""}${market.changePercent.toFixed(2)}%`
   : "Data unavailable"}
-  
+
                   </span>
                 </div>
               );
