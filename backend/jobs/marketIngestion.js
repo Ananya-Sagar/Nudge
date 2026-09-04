@@ -17,6 +17,29 @@ const yahooFinance =
   new YahooFinance();
 
 /* =========================================================
+   Market indices
+   ========================================================= */
+
+const MARKET_INDICES = [
+  {
+    ticker: "^NSEI",
+    name: "NIFTY 50",
+  },
+  {
+    ticker: "^BSESN",
+    name: "SENSEX",
+  },
+  {
+    ticker: "^NSEBANK",
+    name: "NIFTY BANK",
+  },
+  {
+    ticker: "^CNXIT",
+    name: "NIFTY IT",
+  },
+];
+
+/* =========================================================
    Web Push
    ========================================================= */
 
@@ -36,7 +59,7 @@ if (pushEnabled) {
 }
 
 /* =========================================================
-   Send notification
+   Send push notification
    ========================================================= */
 
 const sendPushNotification = async (
@@ -98,10 +121,6 @@ const sendPushNotification = async (
         error.message
       );
 
-      /*
-       * 404/410 means the browser subscription
-       * is no longer valid.
-       */
       if (
         error.statusCode === 404 ||
         error.statusCode === 410
@@ -143,30 +162,16 @@ const checkPriceAlerts = async (
         alert.targetPrice
       );
 
-    let triggered = false;
-
-    if (
-      alert.condition === "below" &&
-      price <= targetPrice
-    ) {
-      triggered = true;
-    }
-
-    if (
-      alert.condition === "above" &&
-      price >= targetPrice
-    ) {
-      triggered = true;
-    }
+    const triggered =
+      alert.condition ===
+        "below"
+        ? price <= targetPrice
+        : price >= targetPrice;
 
     if (!triggered) {
       continue;
     }
 
-    /*
-     * Mark inactive before sending the notification.
-     * This prevents repeated notifications.
-     */
     alert.active = false;
     alert.triggeredAt =
       new Date();
@@ -188,7 +193,78 @@ const checkPriceAlerts = async (
 };
 
 /* =========================================================
-   Historical data bootstrap
+   Save market index snapshot
+   ========================================================= */
+
+const saveIndexSnapshot =
+  async (index) => {
+    try {
+      const quote =
+        await yahooFinance.quote(
+          index.ticker
+        );
+
+      const price = Number(
+        quote.regularMarketPrice
+      );
+
+      const previousClose =
+        Number(
+          quote.regularMarketPreviousClose
+        );
+
+      if (
+        !Number.isFinite(price)
+      ) {
+        throw new Error(
+          "Index price unavailable"
+        );
+      }
+
+      await PriceSnapshot.create({
+        ticker: index.ticker,
+        price,
+
+        previousClose:
+          Number.isFinite(
+            previousClose
+          )
+            ? previousClose
+            : null,
+
+        volume:
+          Number.isFinite(
+            Number(
+              quote.regularMarketVolume
+            )
+          )
+            ? Number(
+                quote.regularMarketVolume
+              )
+            : 0,
+
+        capturedAt:
+          new Date(),
+
+        sourceLagSeconds: 0,
+
+        source:
+          "yahoo-finance-index",
+      });
+
+      console.log(
+        `Saved ${index.name}: ${price}`
+      );
+    } catch (error) {
+      console.error(
+        `Failed to fetch ${index.name}:`,
+        error.message
+      );
+    }
+  };
+
+/* =========================================================
+   Historical stock data
    ========================================================= */
 
 const bootstrapHistoricalData =
@@ -222,7 +298,9 @@ const bootstrapHistoricalData =
               }
             );
 
-          if (existingCount >= 20) {
+          if (
+            existingCount >= 20
+          ) {
             console.log(
               `${ticker} already has enough history.`
             );
@@ -234,12 +312,9 @@ const bootstrapHistoricalData =
             `Loading historical data for ${ticker}...`
           );
 
-          const symbol =
-            `${ticker}.NS`;
-
           const result =
             await yahooFinance.chart(
-              symbol,
+              `${ticker}.NS`,
               {
                 period1:
                   new Date(
@@ -289,28 +364,29 @@ const bootstrapHistoricalData =
               continue;
             }
 
-            await PriceSnapshot.create(
-              {
-                ticker,
+            await PriceSnapshot.create({
+              ticker,
 
-                price:
-                  quote.close,
+              price:
+                quote.close,
 
-                volume:
-                  typeof quote.volume ===
-                  "number"
-                    ? quote.volume
-                    : 0,
+              previousClose:
+                null,
 
-                capturedAt,
+              volume:
+                typeof quote.volume ===
+                "number"
+                  ? quote.volume
+                  : 0,
 
-                sourceLagSeconds:
-                  null,
+              capturedAt,
 
-                source:
-                  "yahoo-finance-historical",
-              }
-            );
+              sourceLagSeconds:
+                null,
+
+              source:
+                "yahoo-finance-historical",
+            });
           }
 
           console.log(
@@ -336,7 +412,7 @@ const bootstrapHistoricalData =
   };
 
 /* =========================================================
-   Live market ingestion
+   Live stock ingestion
    ========================================================= */
 
 const runMarketIngestion =
@@ -375,35 +451,40 @@ const runMarketIngestion =
             continue;
           }
 
-          await PriceSnapshot.create(
-            {
-              ticker:
-                marketData.ticker,
+          await PriceSnapshot.create({
+            ticker:
+              marketData.ticker,
 
-              price:
-                marketData.price,
+            price:
+              marketData.price,
 
-              volume:
-                marketData.volume || 0,
+            previousClose:
+              Number.isFinite(
+                Number(
+                  marketData.previousClose
+                )
+              )
+                ? Number(
+                    marketData.previousClose
+                  )
+                : null,
 
-              capturedAt:
-                new Date(),
+            volume:
+              marketData.volume || 0,
 
-              sourceLagSeconds: 0,
+            capturedAt:
+              new Date(),
 
-              source:
-                "yahoo-finance",
-            }
-          );
+            sourceLagSeconds: 0,
+
+            source:
+              "yahoo-finance",
+          });
 
           console.log(
             `Saved snapshot for ${ticker}: ₹${marketData.price}`
           );
 
-          /*
-           * Check user alerts after
-           * receiving fresh market data.
-           */
           await checkPriceAlerts(
             ticker,
             marketData.price
@@ -414,6 +495,16 @@ const runMarketIngestion =
             error.message
           );
         }
+      }
+
+      /* -----------------------------------------------------
+         Market overview
+         ----------------------------------------------------- */
+
+      for (const index of MARKET_INDICES) {
+        await saveIndexSnapshot(
+          index
+        );
       }
 
       console.log(

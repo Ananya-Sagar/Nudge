@@ -2447,16 +2447,10 @@ function App() {
                         : "market-change negative"
                     }
                   >
-                    {market.changePercent !==
-                    null
-                      ? `${
-                          positive
-                            ? "+"
-                            : ""
-                        }${market.changePercent.toFixed(
-                          2
-                        )}%`
-                      : "Data unavailable"}
+                    {market.changePercent !== null
+  ? `${positive ? "+" : ""}${market.changePercent.toFixed(2)}%`
+  : "Data unavailable"}
+  
                   </span>
                 </div>
               );
