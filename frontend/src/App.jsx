@@ -1,8 +1,35 @@
-import { useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
+
 import "./App.css";
 
-const API_URL = "https://nudge-obc3.onrender.com";
-const USER_ID_KEY = "market_watch_user_id";
+/* =========================================================
+   Configuration
+   ========================================================= */
+
+const API_URL =
+  import.meta.env.DEV
+    ? "http://localhost:5000"
+    : "https://nudge-obc3.onrender.com";
+
+const TOKEN_KEY =
+  "nudge_auth_token";
+
+const GUEST_ID_KEY =
+  "nudge_guest_id";
+
+const GUEST_MODE_KEY =
+  "nudge_guest_mode";
+
+const GUEST_USED_KEY =
+  "nudge_guest_used";
+
+/* =========================================================
+   Company names
+   ========================================================= */
 
 const COMPANY_NAMES = {
   RELIANCE: "Reliance Industries",
@@ -17,25 +44,103 @@ const COMPANY_NAMES = {
   AXISBANK: "Axis Bank",
 };
 
-const getUserId = () => {
-  let userId = localStorage.getItem(USER_ID_KEY);
+/* =========================================================
+   Storage helpers
+   ========================================================= */
 
-  if (!userId) {
-    userId = crypto.randomUUID();
-    localStorage.setItem(USER_ID_KEY, userId);
+const getGuestId = () => {
+  let guestId =
+    localStorage.getItem(
+      GUEST_ID_KEY
+    );
+
+  if (!guestId) {
+    guestId = crypto.randomUUID();
+
+    localStorage.setItem(
+      GUEST_ID_KEY,
+      guestId
+    );
   }
 
-  return userId;
+  return guestId;
 };
 
-/* =========================
+const getToken = () => {
+  return localStorage.getItem(
+    TOKEN_KEY
+  );
+};
+
+const getRequestHeaders = (
+  includeJson = false
+) => {
+  const headers = {};
+
+  if (includeJson) {
+    headers["Content-Type"] =
+      "application/json";
+  }
+
+  const token = getToken();
+
+  if (token) {
+    headers.Authorization =
+      `Bearer ${token}`;
+  } else {
+    headers["X-Guest-Id"] =
+      getGuestId();
+  }
+
+  return headers;
+};
+
+/* =========================================================
+   Push helpers
+   ========================================================= */
+
+const urlBase64ToUint8Array = (
+  value
+) => {
+  const padding =
+    "=".repeat(
+      (4 -
+        (value.length % 4)) %
+        4
+    );
+
+  const base64 =
+    (
+      value + padding
+    )
+      .replace(/-/g, "+")
+      .replace(/_/g, "/");
+
+  const rawData =
+    window.atob(base64);
+
+  return Uint8Array.from(
+    [...rawData].map(
+      (character) =>
+        character.charCodeAt(0)
+    )
+  );
+};
+
+/* =========================================================
    Price Chart
-   ========================= */
+   ========================================================= */
 
 function PriceChart({ data }) {
-  const [hoveredPoint, setHoveredPoint] = useState(null);
+  const [
+    hoveredPoint,
+    setHoveredPoint,
+  ] = useState(null);
 
-  if (!data || data.length < 2) {
+  if (
+    !data ||
+    data.length < 2
+  ) {
     return (
       <div className="chart-placeholder">
         Not enough price history yet.
@@ -51,22 +156,36 @@ function PriceChart({ data }) {
   const paddingTop = 10;
   const paddingBottom = 24;
 
-  const prices = data.map((point) => Number(point.price));
+  const prices = data.map(
+    (point) =>
+      Number(point.price)
+  );
 
-  const minPrice = Math.min(...prices);
-  const maxPrice = Math.max(...prices);
-  const priceRange = maxPrice - minPrice || 1;
+  const minPrice =
+    Math.min(...prices);
+
+  const maxPrice =
+    Math.max(...prices);
+
+  const priceRange =
+    maxPrice - minPrice || 1;
 
   const firstPrice = prices[0];
-  const lastPrice = prices[prices.length - 1];
+  const lastPrice =
+    prices[prices.length - 1];
 
   const overallChange =
     firstPrice > 0
-      ? ((lastPrice - firstPrice) / firstPrice) * 100
+      ? ((lastPrice -
+          firstPrice) /
+          firstPrice) *
+        100
       : 0;
 
   const chartColor =
-    overallChange >= 0 ? "#2f8f5b" : "#c94f4f";
+    overallChange >= 0
+      ? "#2f8f5b"
+      : "#c94f4f";
 
   const gradientId =
     overallChange >= 0
@@ -75,13 +194,21 @@ function PriceChart({ data }) {
 
   const getX = (index) =>
     paddingLeft +
-    (index / (data.length - 1)) *
-      (width - paddingLeft - paddingRight);
+    (index /
+      (data.length - 1)) *
+      (width -
+        paddingLeft -
+        paddingRight);
 
   const getY = (price) =>
     paddingTop +
-    (1 - (price - minPrice) / priceRange) *
-      (height - paddingTop - paddingBottom);
+    (1 -
+      (price -
+        minPrice) /
+        priceRange) *
+      (height -
+        paddingTop -
+        paddingBottom);
 
   const points = data
     .map(
@@ -93,28 +220,43 @@ function PriceChart({ data }) {
     .join(" ");
 
   const areaPoints = [
-    `${getX(0)},${height - paddingBottom}`,
+    `${getX(0)},${
+      height - paddingBottom
+    }`,
     points,
-    `${getX(data.length - 1)},${height - paddingBottom}`,
+    `${getX(
+      data.length - 1
+    )},${
+      height - paddingBottom
+    }`,
   ].join(" ");
 
-  const latestIndex = data.length - 1;
-  const latestPoint = data[latestIndex];
+  const latestIndex =
+    data.length - 1;
 
-  const latestX = getX(latestIndex);
-  const latestY = getY(
-    Number(latestPoint.price)
-  );
+  const latestPoint =
+    data[latestIndex];
+
+  const latestX =
+    getX(latestIndex);
+
+  const latestY =
+    getY(
+      Number(latestPoint.price)
+    );
 
   const yLabels = [
     maxPrice,
-    minPrice + priceRange / 2,
+    minPrice +
+      priceRange / 2,
     minPrice,
   ];
 
   const dateIndexes = [
     0,
-    Math.floor((data.length - 1) / 2),
+    Math.floor(
+      (data.length - 1) / 2
+    ),
     data.length - 1,
   ];
 
@@ -128,10 +270,17 @@ function PriceChart({ data }) {
         <div className="chart-header-right">
           <span
             className="chart-trend"
-            style={{ color: chartColor }}
+            style={{
+              color: chartColor,
+            }}
           >
-            {overallChange >= 0 ? "+" : ""}
-            {overallChange.toFixed(2)}%
+            {overallChange >= 0
+              ? "+"
+              : ""}
+            {overallChange.toFixed(
+              2
+            )}
+            %
           </span>
 
           <span className="chart-period">
@@ -155,48 +304,51 @@ function PriceChart({ data }) {
             >
               <stop
                 offset="0%"
-                stopColor={chartColor}
+                stopColor={
+                  chartColor
+                }
                 stopOpacity="0.20"
               />
 
               <stop
                 offset="100%"
-                stopColor={chartColor}
+                stopColor={
+                  chartColor
+                }
                 stopOpacity="0"
               />
             </linearGradient>
           </defs>
 
-          {/* Grid */}
+          {[0, 1, 2].map(
+            (index) => {
+              const y =
+                paddingTop +
+                (index / 2) *
+                  (height -
+                    paddingTop -
+                    paddingBottom);
 
-          {[0, 1, 2].map((index) => {
-            const y =
-              paddingTop +
-              (index / 2) *
-                (height -
-                  paddingTop -
-                  paddingBottom);
-
-            return (
-              <line
-                key={index}
-                x1={paddingLeft}
-                y1={y}
-                x2={width - paddingRight}
-                y2={y}
-                className="chart-grid-line"
-              />
-            );
-          })}
-
-          {/* Shading */}
+              return (
+                <line
+                  key={index}
+                  x1={paddingLeft}
+                  y1={y}
+                  x2={
+                    width -
+                    paddingRight
+                  }
+                  y2={y}
+                  className="chart-grid-line"
+                />
+              );
+            }
+          )}
 
           <polygon
             points={areaPoints}
             fill={`url(#${gradientId})`}
           />
-
-          {/* Main line */}
 
           <polyline
             points={points}
@@ -207,42 +359,52 @@ function PriceChart({ data }) {
             strokeLinejoin="round"
           />
 
-          {/* Data points */}
+          {data.map(
+            (point, index) => {
+              const x =
+                getX(index);
 
-          {data.map((point, index) => {
-            const x = getX(index);
-            const y = getY(
-              Number(point.price)
-            );
+              const y =
+                getY(
+                  Number(
+                    point.price
+                  )
+                );
 
-            const isHovered =
-              hoveredPoint?.index === index;
+              const isHovered =
+                hoveredPoint?.index ===
+                index;
 
-            return (
-              <circle
-                key={index}
-                cx={x}
-                cy={y}
-                r={isHovered ? 4 : 2.5}
-                fill={chartColor}
-                className="chart-point"
-                onMouseEnter={() =>
-                  setHoveredPoint({
-                    index,
-                    x,
-                    y,
-                    date: point.date,
-                    price: point.price,
-                  })
-                }
-                onMouseLeave={() =>
-                  setHoveredPoint(null)
-                }
-              />
-            );
-          })}
-
-          {/* Current price bubble */}
+              return (
+                <circle
+                  key={index}
+                  cx={x}
+                  cy={y}
+                  r={
+                    isHovered
+                      ? 4
+                      : 2.5
+                  }
+                  fill={chartColor}
+                  className="chart-point"
+                  onMouseEnter={() =>
+                    setHoveredPoint({
+                      index,
+                      x,
+                      y,
+                      date:
+                        point.date,
+                      price:
+                        point.price,
+                    })
+                  }
+                  onMouseLeave={() =>
+                    setHoveredPoint(null)
+                  }
+                />
+              );
+            }
+          )}
 
           <g
             transform={`translate(
@@ -280,21 +442,21 @@ function PriceChart({ data }) {
             </text>
           </g>
 
-          {/* Hover tooltip */}
-
           {hoveredPoint && (
             <g
               transform={`translate(
                 ${Math.max(
                   45,
                   Math.min(
-                    hoveredPoint.x - 50,
+                    hoveredPoint.x -
+                      50,
                     width - 112
                   )
                 )}
                 ${Math.max(
                   4,
-                  hoveredPoint.y - 48
+                  hoveredPoint.y -
+                    48
                 )}
               )`}
               pointerEvents="none"
@@ -337,66 +499,307 @@ function PriceChart({ data }) {
             </g>
           )}
 
-          {/* Y-axis */}
+          {yLabels.map(
+            (price, index) => {
+              const y =
+                paddingTop +
+                (index / 2) *
+                  (height -
+                    paddingTop -
+                    paddingBottom);
 
-          {yLabels.map((price, index) => {
-            const y =
-              paddingTop +
-              (index / 2) *
-                (height -
-                  paddingTop -
-                  paddingBottom);
+              return (
+                <text
+                  key={index}
+                  x="4"
+                  y={y + 3}
+                  className="chart-axis-label"
+                >
+                  {Math.round(
+                    price
+                  ).toLocaleString(
+                    "en-IN"
+                  )}
+                </text>
+              );
+            }
+          )}
 
-            return (
-              <text
-                key={index}
-                x="4"
-                y={y + 3}
-                className="chart-axis-label"
-              >
-                {Math.round(
-                  price
-                ).toLocaleString("en-IN")}
-              </text>
-            );
-          })}
+          {dateIndexes.map(
+            (index) => {
+              const point =
+                data[index];
 
-          {/* X-axis */}
-
-          {dateIndexes.map((index) => {
-            const point = data[index];
-
-            return (
-              <text
-                key={index}
-                x={getX(index)}
-                y={height - 7}
-                textAnchor="middle"
-                className="chart-axis-label"
-              >
-                {new Date(
-                  point.date
-                ).toLocaleDateString(
-                  "en-IN",
-                  {
-                    month: "short",
-                    day: "numeric",
-                  }
-                )}
-              </text>
-            );
-          })}
+              return (
+                <text
+                  key={index}
+                  x={getX(index)}
+                  y={height - 7}
+                  textAnchor="middle"
+                  className="chart-axis-label"
+                >
+                  {new Date(
+                    point.date
+                  ).toLocaleDateString(
+                    "en-IN",
+                    {
+                      month: "short",
+                      day: "numeric",
+                    }
+                  )}
+                </text>
+              );
+            }
+          )}
         </svg>
       </div>
     </div>
   );
 }
 
-/* =========================
-   App
-   ========================= */
+/* =========================================================
+   Authentication Screen
+   ========================================================= */
+
+function AuthScreen({
+  mode,
+  setMode,
+  email,
+  setEmail,
+  password,
+  setPassword,
+  onSubmit,
+  onGuest,
+  loading,
+  error,
+}) {
+  return (
+    <div className="auth-page">
+      <div className="auth-card">
+        <div className="auth-brand">
+          <div className="logo-mark">
+            N
+          </div>
+
+          <h1>Nudge</h1>
+        </div>
+
+        <p className="auth-subtitle">
+          Track what matters.
+          Know what changed.
+        </p>
+
+        <div className="auth-tabs">
+          <button
+            type="button"
+            className={
+              mode === "login"
+                ? "active"
+                : ""
+            }
+            onClick={() =>
+              setMode("login")
+            }
+          >
+            Log in
+          </button>
+
+          <button
+            type="button"
+            className={
+              mode === "signup"
+                ? "active"
+                : ""
+            }
+            onClick={() =>
+              setMode("signup")
+            }
+          >
+            Create account
+          </button>
+        </div>
+
+        <form
+          className="auth-form"
+          onSubmit={onSubmit}
+        >
+          <label>
+            Email
+            <input
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(event) =>
+                setEmail(
+                  event.target.value
+                )
+              }
+              required
+            />
+          </label>
+
+          <label>
+            Password
+            <input
+              type="password"
+              placeholder="At least 8 characters"
+              value={password}
+              onChange={(event) =>
+                setPassword(
+                  event.target.value
+                )
+              }
+              minLength={8}
+              required
+            />
+          </label>
+
+          {error && (
+            <div className="auth-error">
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            className="auth-submit"
+            disabled={loading}
+          >
+            {loading
+              ? "Please wait..."
+              : mode === "login"
+              ? "Log in"
+              : "Create account"}
+          </button>
+        </form>
+
+        <div className="auth-divider">
+          <span>or</span>
+        </div>
+
+        <button
+          type="button"
+          className="guest-button"
+          onClick={onGuest}
+        >
+          Continue without login
+        </button>
+
+        <p className="auth-note">
+          Use Nudge as a guest
+          or create an account to
+          save your progress.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   Login reminder
+   ========================================================= */
+
+function LoginReminder({
+  onLogin,
+  onDismiss,
+}) {
+  return (
+    <div className="login-reminder">
+      <div className="login-reminder-content">
+        <strong>
+          Save your progress
+        </strong>
+
+        <span>
+          Log in for a better
+          experience and to keep
+          your watchlist and alerts.
+        </span>
+      </div>
+
+      <div className="login-reminder-actions">
+        <button
+          type="button"
+          onClick={onLogin}
+        >
+          Log in
+        </button>
+
+        <button
+          type="button"
+          className="dismiss-button"
+          onClick={onDismiss}
+          aria-label="Dismiss login reminder"
+        >
+          ×
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   Main App
+   ========================================================= */
 
 function App() {
+  /* -------------------------------------------------------
+     Initial identity state
+     ------------------------------------------------------- */
+
+  const initialToken =
+    localStorage.getItem(
+      TOKEN_KEY
+    );
+
+  const initialGuestMode =
+    localStorage.getItem(
+      GUEST_MODE_KEY
+    ) === "true";
+
+  const [authReady, setAuthReady] =
+    useState(!initialToken);
+
+  const [authenticated, setAuthenticated] =
+    useState(Boolean(initialToken));
+
+  const [guestMode, setGuestMode] =
+    useState(initialGuestMode);
+
+  const [user, setUser] =
+    useState(null);
+
+  /* -------------------------------------------------------
+     Authentication form
+     ------------------------------------------------------- */
+
+  const [authMode, setAuthMode] =
+    useState("login");
+
+  const [email, setEmail] =
+    useState("");
+
+  const [password, setPassword] =
+    useState("");
+
+  const [authError, setAuthError] =
+    useState("");
+
+  const [authLoading, setAuthLoading] =
+    useState(false);
+
+  const [showLoginReminder, setShowLoginReminder] =
+    useState(
+      initialGuestMode &&
+        localStorage.getItem(
+          GUEST_USED_KEY
+        ) === "true"
+    );
+
+  /* -------------------------------------------------------
+     Watchlist + market state
+     ------------------------------------------------------- */
+
   const [watchlist, setWatchlist] =
     useState([]);
 
@@ -439,305 +842,780 @@ function App() {
   const [loadingTicker, setLoadingTicker] =
     useState(null);
 
-  const [toast, setToast] =
-    useState("");
-
   const [refreshingAll, setRefreshingAll] =
     useState(false);
 
-  /* =========================
+  const [toast, setToast] =
+    useState("");
+
+  /* -------------------------------------------------------
+     Alerts
+     ------------------------------------------------------- */
+
+  const [alerts, setAlerts] =
+    useState([]);
+
+  const [alertForm, setAlertForm] =
+    useState({
+      ticker: "",
+      condition: "below",
+      targetPrice: "",
+    });
+
+  const [showAlertForm, setShowAlertForm] =
+    useState(false);
+
+  const [alertLoading, setAlertLoading] =
+    useState(false);
+
+  const [notificationsEnabled, setNotificationsEnabled] =
+    useState(
+      typeof Notification !==
+        "undefined" &&
+        Notification.permission ===
+          "granted"
+    );
+
+  /* =======================================================
      Dashboard loading
-     ========================= */
+     ======================================================= */
 
-  const loadDashboard = async () => {
-    try {
-      const [
-        watchlistResponse,
-        dashboardResponse,
-      ] = await Promise.all([
-        fetch(`${API_URL}/api/watchlist`, {
-          headers: {
-            "X-User-Id": getUserId(),
-          },
-        }),
-
-        fetch(`${API_URL}/api/dashboard`, {
-          headers: {
-            "X-User-Id": getUserId(),
-          },
-        }),
-      ]);
-
-      const watchlistData =
-        await watchlistResponse.json();
-
-      const dashboardData =
-        await dashboardResponse.json();
-
-      if (watchlistResponse.ok) {
-        setWatchlist(watchlistData);
-      }
-
-      if (dashboardResponse.ok) {
-        setDashboard(dashboardData);
-        setErrorMessage("");
-      } else {
-        setErrorMessage(
-          dashboardData.message ||
-            "Could not load market dashboard."
-        );
-      }
-    } catch (error) {
-      console.error(
-        "Dashboard loading error:",
-        error
-      );
-
-      setErrorMessage(
-        "Could not load market dashboard."
-      );
-    }
-  };
-
-  useEffect(() => {
-    loadDashboard();
-  }, []);
-
-  /* =========================
-     Add stock
-     ========================= */
-
-  const addStock = async (event) => {
-    event.preventDefault();
-
-    setErrorMessage("");
-
-    if (!ticker.trim()) {
-      setErrorMessage(
-        "Please enter a stock ticker."
-      );
-      return;
-    }
-
-    try {
-      const response = await fetch(
-        `${API_URL}/api/watchlist`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/json",
-            "X-User-Id": getUserId(),
-          },
-          body: JSON.stringify({
-            ticker:
-              ticker
-                .trim()
-                .toUpperCase(),
-          }),
-        }
-      );
-
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-        setErrorMessage(
-          data.message ||
-            "Could not add this stock."
-        );
-        return;
-      }
-
-      setWatchlist((previous) => [
-        ...previous,
-        data,
-      ]);
-
-      setTicker("");
-
-      await loadDashboard();
-    } catch (error) {
-      console.error(
-        "Add stock error:",
-        error
-      );
-
-      setErrorMessage(
-        "Could not connect to the market service. Please try again."
-      );
-    }
-  };
-
-  /* =========================
-     Fetch market data
-     ========================= */
-
-  const fetchMarketData = async (ticker) => {
-    setLoadingTicker(ticker);
-    setErrorMessage("");
-
-    try {
-      const response = await fetch(
-        `${API_URL}/api/market/${ticker}`,
-        {
-          headers: {
-            "X-User-Id": getUserId(),
-          },
-        }
-      );
-
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-        setErrorMessage(
-          data.message ||
-            "Could not fetch market data."
-        );
-        return;
-      }
-
-      setMarketData((previous) => ({
-        ...previous,
-        [ticker]: data,
-      }));
-
-      /* Price history */
-
+  const loadDashboard =
+    useCallback(async () => {
       try {
-        const historyResponse =
-          await fetch(
-            `${API_URL}/api/market/${ticker}/history`,
+        const [
+          watchlistResponse,
+          dashboardResponse,
+        ] = await Promise.all([
+          fetch(
+            `${API_URL}/api/watchlist`,
             {
-              headers: {
-                "X-User-Id":
-                  getUserId(),
-              },
+              headers:
+                getRequestHeaders(),
             }
-          );
+          ),
 
-        const historyData =
-          await historyResponse.json();
+          fetch(
+            `${API_URL}/api/dashboard`,
+            {
+              headers:
+                getRequestHeaders(),
+            }
+          ),
+        ]);
 
-        if (historyResponse.ok) {
-          setPriceHistory(
-            (previous) => ({
-              ...previous,
-              [ticker]:
-                historyData,
-            })
+        const watchlistData =
+          await watchlistResponse.json();
+
+        const dashboardData =
+          await dashboardResponse.json();
+
+        if (
+          watchlistResponse.ok
+        ) {
+          setWatchlist(
+            watchlistData
           );
         }
-      } catch (historyError) {
+
+        if (
+          dashboardResponse.ok
+        ) {
+          setDashboard(
+            dashboardData
+          );
+
+          setErrorMessage("");
+        } else {
+          setErrorMessage(
+            dashboardData.message ||
+              "Could not load market dashboard."
+          );
+        }
+      } catch (error) {
         console.error(
-          "Price history error:",
-          historyError
+          "Dashboard loading error:",
+          error
+        );
+
+        setErrorMessage(
+          "Could not load market dashboard."
         );
       }
+    }, []);
 
-      /* Update user view */
+  /* =======================================================
+     Alert loading
+     ======================================================= */
 
-      const viewResponse =
-        await fetch(
-          `${API_URL}/api/market/${ticker}/view`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type":
-                "application/json",
-              "X-User-Id": getUserId(),
-            },
-          }
-        );
-
-      const viewData =
-        await viewResponse.json();
-
-      if (viewResponse.ok) {
-        setSignals(
-          (previous) => ({
-            ...previous,
-            [ticker]:
-              viewData.signalEvent,
-          })
-        );
+  const loadAlerts =
+    useCallback(async () => {
+      if (!authenticated) {
+        setAlerts([]);
+        return;
       }
 
-      await loadDashboard();
-    } catch (error) {
-      console.error(
-        "Market data error:",
-        error
-      );
-
-      setErrorMessage(
-        "Unable to fetch market data right now."
-      );
-    } finally {
-      setLoadingTicker(null);
-    }
-  };
-
-  /* =========================
-     Refresh all
-     ========================= */
-const refreshAllStocks = async () => {
-  if (
-    watchlist.length === 0 ||
-    refreshingAll
-  ) {
-    return;
-  }
-
-  setRefreshingAll(true);
-  setErrorMessage("");
-
-  try {
-    for (const stock of watchlist) {
-      await fetchMarketData(
-        stock.ticker
-      );
-    }
-
-    await loadDashboard();
-
-    setToast(
-      "Your watchlist is up to date."
-    );
-
-    setTimeout(() => {
-      setToast("");
-    }, 2500);
-  } catch (error) {
-    console.error(
-      "Refresh all error:",
-      error
-    );
-
-    setErrorMessage(
-      "Some market data could not be refreshed."
-    );
-  } finally {
-    setRefreshingAll(false);
-  }
-};
-
-  /* =========================
-     Signal history
-     ========================= */
-
-  const fetchSignalHistory =
-    async (ticker) => {
       try {
         const response =
           await fetch(
-            `${API_URL}/api/signals/${ticker}/history`,
+            `${API_URL}/api/alerts`,
             {
-              headers: {
-                "X-User-Id":
-                  getUserId(),
-              },
+              headers:
+                getRequestHeaders(),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (response.ok) {
+          setAlerts(data);
+        }
+      } catch (error) {
+        console.error(
+          "Alert loading error:",
+          error
+        );
+      }
+    }, [authenticated]);
+
+  /* =======================================================
+     Restore existing login session
+     ======================================================= */
+
+  useEffect(() => {
+    if (!initialToken) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const verifySession =
+      async () => {
+        try {
+          const response =
+            await fetch(
+              `${API_URL}/api/auth/me`,
+              {
+                headers:
+                  getRequestHeaders(),
+              }
+            );
+
+          if (!response.ok) {
+            localStorage.removeItem(
+              TOKEN_KEY
+            );
+
+            if (!cancelled) {
+              setAuthenticated(
+                false
+              );
+              setGuestMode(
+                false
+              );
+            }
+
+            return;
+          }
+
+          const data =
+            await response.json();
+
+          if (!cancelled) {
+            setUser(
+              data.user
+            );
+
+            setAuthenticated(
+              true
+            );
+
+            setGuestMode(
+              false
+            );
+          }
+        } catch (error) {
+          console.error(
+            "Session verification error:",
+            error
+          );
+
+          localStorage.removeItem(
+            TOKEN_KEY
+          );
+
+          if (!cancelled) {
+            setAuthenticated(
+              false
+            );
+            setGuestMode(
+              false
+            );
+          }
+        } finally {
+          if (!cancelled) {
+            setAuthReady(true);
+          }
+        }
+      };
+
+    verifySession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initialToken]);
+
+  /* =======================================================
+     Load app data
+     ======================================================= */
+
+ useEffect(() => {
+  if (!authReady) {
+    return;
+  }
+
+  const timer = setTimeout(() => {
+    loadDashboard();
+
+    if (authenticated) {
+      loadAlerts();
+    }
+  }, 0);
+
+  return () => {
+    clearTimeout(timer);
+  };
+}, [
+  authReady,
+  authenticated,
+  loadDashboard,
+  loadAlerts,
+]);
+
+  /* =======================================================
+     Authentication
+     ======================================================= */
+
+  const handleAuth =
+    async (event) => {
+      event.preventDefault();
+
+      setAuthError("");
+      setAuthLoading(true);
+
+      try {
+        const endpoint =
+          authMode === "login"
+            ? "/api/auth/login"
+            : "/api/auth/register";
+
+        const response =
+          await fetch(
+            `${API_URL}${endpoint}`,
+            {
+              method: "POST",
+              headers:
+                getRequestHeaders(
+                  true
+                ),
+              body: JSON.stringify({
+                email:
+                  email
+                    .trim()
+                    .toLowerCase(),
+
+                password,
+              }),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          setAuthError(
+            data.message ||
+              "Authentication failed."
+          );
+          return;
+        }
+
+        localStorage.setItem(
+          TOKEN_KEY,
+          data.token
+        );
+
+        setUser(data.user);
+        setAuthenticated(
+          true
+        );
+        setGuestMode(
+          false
+        );
+
+        localStorage.removeItem(
+          GUEST_MODE_KEY
+        );
+
+        /*
+         * Move the guest watchlist
+         * into the new account.
+         */
+        try {
+          await fetch(
+            `${API_URL}/api/auth/migrate-guest`,
+            {
+              method: "POST",
+              headers:
+                getRequestHeaders(
+                  true
+                ),
+              body: JSON.stringify({
+                guestId:
+                  getGuestId(),
+              }),
+            }
+          );
+        } catch (migrationError) {
+          console.error(
+            "Guest migration error:",
+            migrationError
+          );
+        }
+
+        setEmail("");
+        setPassword("");
+        setAuthError("");
+        setShowLoginReminder(
+          false
+        );
+        setAuthReady(true);
+
+        await loadDashboard();
+        await loadAlerts();
+      } catch (error) {
+        console.error(
+          "Authentication error:",
+          error
+        );
+
+        setAuthError(
+          "Could not connect to Nudge."
+        );
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+
+  const continueAsGuest =
+    () => {
+      getGuestId();
+
+      localStorage.setItem(
+        GUEST_MODE_KEY,
+        "true"
+      );
+
+      localStorage.setItem(
+        GUEST_USED_KEY,
+        "true"
+      );
+
+      setGuestMode(true);
+      setAuthenticated(
+        false
+      );
+      setAuthReady(true);
+      setShowLoginReminder(
+        true
+      );
+
+      loadDashboard();
+    };
+
+  const openLogin = () => {
+    setAuthMode("login");
+    setAuthError("");
+    setGuestMode(false);
+  };
+
+  const logout = () => {
+    localStorage.removeItem(
+      TOKEN_KEY
+    );
+
+    localStorage.removeItem(
+      GUEST_MODE_KEY
+    );
+
+    setUser(null);
+    setAuthenticated(
+      false
+    );
+    setGuestMode(false);
+    setAlerts([]);
+    setNotificationsEnabled(
+      false
+    );
+
+    setAuthMode("login");
+    setEmail("");
+    setPassword("");
+    setAuthError("");
+    setAuthReady(true);
+  };
+
+  /* =======================================================
+     Add stock
+     ======================================================= */
+
+  const addStock =
+    async (event) => {
+      event.preventDefault();
+
+      setErrorMessage("");
+
+      const cleanTicker =
+        ticker
+          .trim()
+          .toUpperCase();
+
+      if (!cleanTicker) {
+        setErrorMessage(
+          "Please enter a stock ticker."
+        );
+
+        return;
+      }
+
+      try {
+        const response =
+          await fetch(
+            `${API_URL}/api/watchlist`,
+            {
+              method: "POST",
+              headers:
+                getRequestHeaders(
+                  true
+                ),
+              body: JSON.stringify({
+                ticker:
+                  cleanTicker,
+              }),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          setErrorMessage(
+            data.message ||
+              "Could not add this stock."
+          );
+
+          return;
+        }
+
+        setWatchlist(
+          (previous) => [
+            ...previous,
+            data,
+          ]
+        );
+
+        setTicker("");
+
+        if (!authenticated) {
+          localStorage.setItem(
+            GUEST_USED_KEY,
+            "true"
+          );
+
+          localStorage.setItem(
+            GUEST_MODE_KEY,
+            "true"
+          );
+
+          setShowLoginReminder(
+            true
+          );
+        }
+
+        await loadDashboard();
+      } catch (error) {
+        console.error(
+          "Add stock error:",
+          error
+        );
+
+        setErrorMessage(
+          "Could not connect to the market service. Please try again."
+        );
+      }
+    };
+
+  /* =======================================================
+     Fetch market data
+     ======================================================= */
+
+  const fetchMarketData =
+    async (stockTicker) => {
+      setLoadingTicker(
+        stockTicker
+      );
+
+      setErrorMessage("");
+
+      try {
+        const response =
+          await fetch(
+            `${API_URL}/api/market/${stockTicker}`,
+            {
+              headers:
+                getRequestHeaders(),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          setErrorMessage(
+            data.message ||
+              "Could not fetch market data."
+          );
+
+          return;
+        }
+
+        setMarketData(
+          (previous) => ({
+            ...previous,
+            [stockTicker]:
+              data,
+          })
+        );
+
+        /* -------------------------------------------------
+           Price history
+           ------------------------------------------------- */
+
+        try {
+          const historyResponse =
+            await fetch(
+              `${API_URL}/api/market/${stockTicker}/history`,
+              {
+                headers:
+                  getRequestHeaders(),
+              }
+            );
+
+          const historyData =
+            await historyResponse.json();
+
+          if (
+            historyResponse.ok
+          ) {
+            setPriceHistory(
+              (previous) => ({
+                ...previous,
+                [stockTicker]:
+                  historyData,
+              })
+            );
+          }
+        } catch (historyError) {
+          console.error(
+            "Price history error:",
+            historyError
+          );
+        }
+
+        /* -------------------------------------------------
+           Logged-in personalization
+           ------------------------------------------------- */
+
+        if (authenticated) {
+          const viewResponse =
+            await fetch(
+              `${API_URL}/api/market/${stockTicker}/view`,
+              {
+                method: "POST",
+                headers:
+                  getRequestHeaders(
+                    true
+                  ),
+              }
+            );
+
+          const viewData =
+            await viewResponse.json();
+
+          if (
+            viewResponse.ok
+          ) {
+            setSignals(
+              (previous) => ({
+                ...previous,
+                [stockTicker]:
+                  viewData.signalEvent,
+              })
+            );
+          }
+        }
+
+        await loadDashboard();
+      } catch (error) {
+        console.error(
+          "Market data error:",
+          error
+        );
+
+        setErrorMessage(
+          "Unable to fetch market data right now."
+        );
+      } finally {
+        setLoadingTicker(
+          null
+        );
+      }
+    };
+
+  /* =======================================================
+     Refresh all
+     ======================================================= */
+
+  const refreshAllStocks =
+    async () => {
+      if (
+        watchlist.length ===
+          0 ||
+        refreshingAll
+      ) {
+        return;
+      }
+
+      setRefreshingAll(
+        true
+      );
+
+      setErrorMessage("");
+
+      try {
+        for (const stock of watchlist) {
+          await fetchMarketData(
+            stock.ticker
+          );
+        }
+
+        await loadDashboard();
+
+        setToast(
+          "Your watchlist is up to date."
+        );
+
+        setTimeout(() => {
+          setToast("");
+        }, 2500);
+      } catch (error) {
+        console.error(
+          "Refresh all error:",
+          error
+        );
+
+        setErrorMessage(
+          "Some market data could not be refreshed."
+        );
+      } finally {
+        setRefreshingAll(
+          false
+        );
+      }
+    };
+
+  /* =======================================================
+     Remove stock
+     ======================================================= */
+
+  const removeStock =
+    async (id) => {
+      const confirmed =
+        window.confirm(
+          "Remove this stock from your watchlist?"
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        const response =
+          await fetch(
+            `${API_URL}/api/watchlist/${id}`,
+            {
+              method: "DELETE",
+              headers:
+                getRequestHeaders(),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          setErrorMessage(
+            data.message ||
+              "Could not remove stock."
+          );
+
+          return;
+        }
+
+        setWatchlist(
+          (previous) =>
+            previous.filter(
+              (stock) =>
+                stock._id !== id
+            )
+        );
+
+        await loadDashboard();
+      } catch (error) {
+        console.error(
+          "Remove stock error:",
+          error
+        );
+
+        setErrorMessage(
+          "Could not remove this stock."
+        );
+      }
+    };
+
+  /* =======================================================
+     Signal history
+     ======================================================= */
+
+  const fetchSignalHistory =
+    async (stockTicker) => {
+      if (!authenticated) {
+        setShowLoginReminder(
+          true
+        );
+
+        return;
+      }
+
+      try {
+        const response =
+          await fetch(
+            `${API_URL}/api/signals/${stockTicker}/history`,
+            {
+              headers:
+                getRequestHeaders(),
             }
           );
 
@@ -749,13 +1627,15 @@ const refreshAllStocks = async () => {
             data.message ||
               "Could not fetch signal history."
           );
+
           return;
         }
 
         setSignalHistory(
           (previous) => ({
             ...previous,
-            [ticker]: data,
+            [stockTicker]:
+              data,
           })
         );
       } catch (error) {
@@ -770,157 +1650,616 @@ const refreshAllStocks = async () => {
       }
     };
 
-  /* =========================
+  /* =======================================================
      Feedback
-     ========================= */
+     ======================================================= */
 
-  const sendFeedback = async (
-    signalId,
-    feedback
-  ) => {
-    try {
-      const response =
-        await fetch(
-          `${API_URL}/api/signals/${signalId}/feedback`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type":
-                "application/json",
-              "X-User-Id": getUserId(),
-            },
-            body: JSON.stringify({
-              feedback,
-            }),
-          }
+  const sendFeedback =
+    async (
+      signalId,
+      feedback
+    ) => {
+      if (!authenticated) {
+        setShowLoginReminder(
+          true
         );
 
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-        setErrorMessage(
-          data.message ||
-            "Could not save feedback."
-        );
         return;
       }
 
-      setSignals((previous) => {
-        const updated = {
-          ...previous,
-        };
-
-        const tickerToRemove =
-          Object.keys(updated).find(
-            (stockTicker) =>
-              updated[stockTicker]?._id ===
-              signalId
+      try {
+        const response =
+          await fetch(
+            `${API_URL}/api/signals/${signalId}/feedback`,
+            {
+              method: "POST",
+              headers:
+                getRequestHeaders(
+                  true
+                ),
+              body: JSON.stringify({
+                feedback,
+              }),
+            }
           );
 
-        if (tickerToRemove) {
-          delete updated[
-            tickerToRemove
-          ];
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          setErrorMessage(
+            data.message ||
+              "Could not save feedback."
+          );
+
+          return;
         }
 
-        return updated;
-      });
+        setSignals(
+          (previous) => {
+            const updated = {
+              ...previous,
+            };
 
-      setToast(
-        feedback === "useful"
-          ? "Thanks — Nudge will use this feedback."
-          : "Got it — we'll show fewer signals like this."
-      );
+            const tickerToRemove =
+              Object.keys(
+                updated
+              ).find(
+                (stockTicker) =>
+                  updated[
+                    stockTicker
+                  ]?._id ===
+                  signalId
+              );
 
-      setTimeout(() => {
-        setToast("");
-      }, 2500);
+            if (
+              tickerToRemove
+            ) {
+              delete updated[
+                tickerToRemove
+              ];
+            }
 
-      await loadDashboard();
-    } catch (error) {
-      console.error(
-        "Feedback error:",
-        error
-      );
-
-      setErrorMessage(
-        "Could not save feedback."
-      );
-    }
-  };
-
-  /* =========================
-     Remove stock
-     ========================= */
-
-  const removeStock = async (id) => {
-    const confirmed =
-      window.confirm(
-        "Remove this stock from your watchlist?"
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      const response =
-        await fetch(
-          `${API_URL}/api/watchlist/${id}`,
-          {
-            method: "DELETE",
-            headers: {
-              "X-User-Id": getUserId(),
-            },
+            return updated;
           }
         );
 
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-        setErrorMessage(
-          data.message ||
-            "Could not remove stock."
+        setToast(
+          feedback === "useful"
+            ? "Thanks — Nudge will use this feedback."
+            : "Got it — we'll show fewer signals like this."
         );
+
+        setTimeout(() => {
+          setToast("");
+        }, 2500);
+
+        await loadDashboard();
+      } catch (error) {
+        console.error(
+          "Feedback error:",
+          error
+        );
+
+        setErrorMessage(
+          "Could not save feedback."
+        );
+      }
+    };
+
+  /* =======================================================
+     Browser notifications
+     ======================================================= */
+
+  const enableBrowserNotifications =
+    async () => {
+      if (!authenticated) {
+        setShowLoginReminder(
+          true
+        );
+
+        return false;
+      }
+
+      if (
+        !("Notification" in
+          window) ||
+        !("serviceWorker" in
+          navigator) ||
+        !("PushManager" in
+          window)
+      ) {
+        setToast(
+          "Browser notifications are not supported here."
+        );
+
+        setTimeout(() => {
+          setToast("");
+        }, 3000);
+
+        return false;
+      }
+
+      try {
+        let permission =
+          Notification.permission;
+
+        if (
+          permission !==
+          "granted"
+        ) {
+          permission =
+            await Notification.requestPermission();
+        }
+
+        if (
+          permission !==
+          "granted"
+        ) {
+          setToast(
+            "Notifications were not enabled."
+          );
+
+          setTimeout(() => {
+            setToast("");
+          }, 2500);
+
+          return false;
+        }
+
+        const registration =
+          await navigator.serviceWorker.register(
+            "/sw.js"
+          );
+
+        const keyResponse =
+          await fetch(
+            `${API_URL}/api/push/public-key`,
+            {
+              headers:
+                getRequestHeaders(),
+            }
+          );
+
+        const keyData =
+          await keyResponse.json();
+
+        if (!keyResponse.ok) {
+          throw new Error(
+            keyData.message ||
+              "Push notifications are not configured."
+          );
+        }
+
+        let subscription =
+          await registration.pushManager.getSubscription();
+
+        if (!subscription) {
+          subscription =
+            await registration.pushManager.subscribe(
+              {
+                userVisibleOnly:
+                  true,
+
+                applicationServerKey:
+                  urlBase64ToUint8Array(
+                    keyData.publicKey
+                  ),
+              }
+            );
+        }
+
+        const saveResponse =
+          await fetch(
+            `${API_URL}/api/push/subscribe`,
+            {
+              method: "POST",
+              headers:
+                getRequestHeaders(
+                  true
+                ),
+              body: JSON.stringify(
+                subscription
+              ),
+            }
+          );
+
+        const saveData =
+          await saveResponse.json();
+
+        if (!saveResponse.ok) {
+          throw new Error(
+            saveData.message ||
+              "Could not save notification subscription."
+          );
+        }
+
+        setNotificationsEnabled(
+          true
+        );
+
+        setToast(
+          "Browser notifications are enabled."
+        );
+
+        setTimeout(() => {
+          setToast("");
+        }, 2500);
+
+        return true;
+      } catch (error) {
+        console.error(
+          "Notification setup error:",
+          error
+        );
+
+        setToast(
+          "Could not enable browser notifications."
+        );
+
+        setTimeout(() => {
+          setToast("");
+        }, 3000);
+
+        return false;
+      }
+    };
+
+  /* =======================================================
+     Load alerts after login
+     ======================================================= */
+
+  const openAlertForm =
+    (stockTicker = "") => {
+      if (!authenticated) {
+        setShowLoginReminder(
+          true
+        );
+
         return;
       }
 
-      setWatchlist(
-        (previous) =>
-          previous.filter(
-            (stock) =>
-              stock._id !== id
-          )
+      setAlertForm({
+        ticker:
+          stockTicker,
+        condition:
+          "below",
+        targetPrice:
+          "",
+      });
+
+      setShowAlertForm(
+        true
+      );
+    };
+
+  /* =======================================================
+     Create alert
+     ======================================================= */
+
+  const createAlert =
+    async (event) => {
+      event.preventDefault();
+
+      if (!authenticated) {
+        setShowLoginReminder(
+          true
+        );
+
+        return;
+      }
+
+      setAlertLoading(
+        true
       );
 
-      await loadDashboard();
-    } catch (error) {
-      console.error(
-        "Remove stock error:",
-        error
-      );
+      setErrorMessage("");
 
-      setErrorMessage(
-        "Could not remove this stock."
-      );
-    }
-  };
+      try {
+        /*
+         * A price alert requires
+         * browser push to be ready.
+         */
+        const pushReady =
+          notificationsEnabled ||
+          (await enableBrowserNotifications());
 
-  /* =========================
-     Render
-     ========================= */
+        if (!pushReady) {
+          setErrorMessage(
+            "Enable browser notifications before creating a price alert."
+          );
+
+          return;
+        }
+
+        const cleanTicker =
+          alertForm.ticker
+            .trim()
+            .toUpperCase();
+
+        const targetPrice =
+          Number(
+            alertForm.targetPrice
+          );
+
+        if (!cleanTicker) {
+          setErrorMessage(
+            "Select a stock."
+          );
+
+          return;
+        }
+
+        if (
+          !Number.isFinite(
+            targetPrice
+          ) ||
+          targetPrice <= 0
+        ) {
+          setErrorMessage(
+            "Enter a valid target price."
+          );
+
+          return;
+        }
+
+        const response =
+          await fetch(
+            `${API_URL}/api/alerts`,
+            {
+              method: "POST",
+              headers:
+                getRequestHeaders(
+                  true
+                ),
+              body: JSON.stringify({
+                ticker:
+                  cleanTicker,
+
+                condition:
+                  alertForm.condition,
+
+                targetPrice,
+              }),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          setErrorMessage(
+            data.message ||
+              "Could not create price alert."
+          );
+
+          return;
+        }
+
+        setAlerts(
+          (previous) => [
+            data,
+            ...previous,
+          ]
+        );
+
+        setShowAlertForm(
+          false
+        );
+
+        setAlertForm({
+          ticker: "",
+          condition:
+            "below",
+          targetPrice:
+            "",
+        });
+
+        setToast(
+          "Price alert created."
+        );
+
+        setTimeout(() => {
+          setToast("");
+        }, 2500);
+      } catch (error) {
+        console.error(
+          "Create alert error:",
+          error
+        );
+
+        setErrorMessage(
+          "Could not create price alert."
+        );
+      } finally {
+        setAlertLoading(
+          false
+        );
+      }
+    };
+
+  /* =======================================================
+     Toggle alert
+     ======================================================= */
+
+  const toggleAlert =
+    async (id) => {
+      try {
+        const response =
+          await fetch(
+            `${API_URL}/api/alerts/${id}/toggle`,
+            {
+              method: "PATCH",
+              headers:
+                getRequestHeaders(),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          setErrorMessage(
+            data.message ||
+              "Could not update alert."
+          );
+
+          return;
+        }
+
+        setAlerts(
+          (previous) =>
+            previous.map(
+              (alert) =>
+                alert._id === id
+                  ? data
+                  : alert
+            )
+        );
+      } catch (error) {
+        console.error(
+          "Toggle alert error:",
+          error
+        );
+
+        setErrorMessage(
+          "Could not update alert."
+        );
+      }
+    };
+
+  /* =======================================================
+     Delete alert
+     ======================================================= */
+
+  const deleteAlert =
+    async (id) => {
+      try {
+        const response =
+          await fetch(
+            `${API_URL}/api/alerts/${id}`,
+            {
+              method: "DELETE",
+              headers:
+                getRequestHeaders(),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          setErrorMessage(
+            data.message ||
+              "Could not remove alert."
+          );
+
+          return;
+        }
+
+        setAlerts(
+          (previous) =>
+            previous.filter(
+              (alert) =>
+                alert._id !== id
+            )
+        );
+
+        setToast(
+          "Alert removed."
+        );
+
+        setTimeout(() => {
+          setToast("");
+        }, 2000);
+      } catch (error) {
+        console.error(
+          "Delete alert error:",
+          error
+        );
+      }
+    };
+
+  /* =======================================================
+     Auth loading
+     ======================================================= */
+
+  if (!authReady) {
+    return (
+      <div className="auth-page">
+        <div className="auth-card auth-loading">
+          <div className="logo-mark">
+            N
+          </div>
+
+          <h1>Nudge</h1>
+
+          <p className="auth-note">
+            Checking your account...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  /* =======================================================
+     Authentication screen
+     ======================================================= */
+
+  if (
+    !authenticated &&
+    !guestMode
+  ) {
+    return (
+      <AuthScreen
+        mode={authMode}
+        setMode={(mode) => {
+          setAuthMode(mode);
+          setAuthError("");
+        }}
+        email={email}
+        setEmail={setEmail}
+        password={password}
+        setPassword={setPassword}
+        onSubmit={handleAuth}
+        onGuest={continueAsGuest}
+        loading={authLoading}
+        error={authError}
+      />
+    );
+  }
+
+  /* =======================================================
+     Main application
+     ======================================================= */
 
   return (
     <div className="app">
+      {/* Toast */}
       {toast && (
         <div className="toast">
           {toast}
         </div>
       )}
 
-      {/* HEADER */}
+      {/* Login reminder */}
+      {guestMode &&
+        showLoginReminder && (
+          <LoginReminder
+            onLogin={
+              openLogin
+            }
+            onDismiss={() =>
+              setShowLoginReminder(
+                false
+              )
+            }
+          />
+        )}
+
+      {/* ===================================================
+          Header
+          =================================================== */}
 
       <header className="header">
         <div className="header-top">
@@ -933,18 +2272,92 @@ const refreshAllStocks = async () => {
               <h1>Nudge</h1>
 
               <p className="subtitle">
-                Track what matters. Know what changed.
+                Track what matters.
+                Know what changed.
               </p>
             </div>
           </div>
 
-          <div className="market-pill">
-            ● Market data
+          <div className="header-actions">
+            <div className="market-pill">
+              ● Market data
+            </div>
+
+            {authenticated ? (
+              <button
+                type="button"
+                className="account-button"
+                onClick={logout}
+              >
+                <span>
+                  {user?.email ||
+                    "Account"}
+                </span>
+
+                <small>
+                  Log out
+                </small>
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="account-button"
+                onClick={
+                  openLogin
+                }
+              >
+                Log in
+              </button>
+            )}
           </div>
         </div>
       </header>
 
-      {/* ADD STOCK */}
+      {/* ===================================================
+          Guest / account strip
+          =================================================== */}
+
+      {authenticated ? (
+        <div className="account-strip">
+          <span>
+            Signed in as{" "}
+            <strong>
+              {user?.email}
+            </strong>
+          </span>
+
+          <button
+            type="button"
+            onClick={
+              enableBrowserNotifications
+            }
+          >
+            {notificationsEnabled
+              ? "✓ Notifications enabled"
+              : "Enable notifications"}
+          </button>
+        </div>
+      ) : (
+        <div className="guest-strip">
+          <span>
+            You're using Nudge
+            as a guest.
+          </span>
+
+          <button
+            type="button"
+            onClick={
+              openLogin
+            }
+          >
+            Log in to save progress
+          </button>
+        </div>
+      )}
+
+      {/* ===================================================
+          Add stock
+          =================================================== */}
 
       <section className="add-section">
         <form
@@ -974,15 +2387,20 @@ const refreshAllStocks = async () => {
         )}
       </section>
 
-      {/* MARKET OVERVIEW */}
+      {/* ===================================================
+          Market Overview
+          =================================================== */}
 
       <section className="dashboard-section">
         <div className="section-heading">
           <div>
-            <h2>Market Overview</h2>
+            <h2>
+              Market Overview
+            </h2>
 
             <p>
-              A quick look at the broader market.
+              A quick look at the
+              broader market.
             </p>
           </div>
         </div>
@@ -999,7 +2417,9 @@ const refreshAllStocks = async () => {
               return (
                 <div
                   className="market-card"
-                  key={market.symbol}
+                  key={
+                    market.symbol
+                  }
                 >
                   <span className="market-name">
                     {market.name}
@@ -1045,15 +2465,20 @@ const refreshAllStocks = async () => {
         </div>
       </section>
 
-      {/* TODAY'S NUDGES */}
+      {/* ===================================================
+          Today's Nudges
+          =================================================== */}
 
       <section className="dashboard-section">
         <div className="section-heading">
           <div>
-            <h2>Today's Nudges</h2>
+            <h2>
+              Today's Nudges
+            </h2>
 
             <p>
-              Things that may deserve your attention.
+              Things that may
+              deserve your attention.
             </p>
           </div>
 
@@ -1069,8 +2494,8 @@ const refreshAllStocks = async () => {
         {dashboard.nudges.length ===
         0 ? (
           <div className="nudges-empty">
-            Nothing meaningful needs your
-            attention right now.
+            Nothing meaningful needs
+            your attention right now.
           </div>
         ) : (
           <div className="nudge-list">
@@ -1079,7 +2504,9 @@ const refreshAllStocks = async () => {
                 <button
                   type="button"
                   className="nudge-card"
-                  key={nudge.ticker}
+                  key={
+                    nudge.ticker
+                  }
                   onClick={() => {
                     document
                       .getElementById(
@@ -1088,7 +2515,8 @@ const refreshAllStocks = async () => {
                       ?.scrollIntoView({
                         behavior:
                           "smooth",
-                        block: "center",
+                        block:
+                          "center",
                       });
                   }}
                 >
@@ -1115,7 +2543,9 @@ const refreshAllStocks = async () => {
 
                   {nudge.contextText && (
                     <p className="nudge-context">
-                      {nudge.contextText}
+                      {
+                        nudge.contextText
+                      }
                     </p>
                   )}
 
@@ -1147,7 +2577,9 @@ const refreshAllStocks = async () => {
 
                   {nudge.suggestion && (
                     <div className="nudge-suggestion">
-                      {nudge.suggestion}
+                      {
+                        nudge.suggestion
+                      }
                     </div>
                   )}
                 </button>
@@ -1157,15 +2589,20 @@ const refreshAllStocks = async () => {
         )}
       </section>
 
-      {/* WATCHLIST SUMMARY */}
+      {/* ===================================================
+          Watchlist Summary
+          =================================================== */}
 
       <section className="dashboard-section">
         <div className="section-heading">
           <div>
-            <h2>Watchlist Summary</h2>
+            <h2>
+              Watchlist Summary
+            </h2>
 
             <p>
-              See what changed without the noise.
+              See what changed
+              without the noise.
             </p>
           </div>
 
@@ -1204,7 +2641,9 @@ const refreshAllStocks = async () => {
 
         <div className="watchlist-summary">
           <div className="summary-item">
-            <span>Up today</span>
+            <span>
+              Up today
+            </span>
 
             <strong className="summary-positive">
               {
@@ -1216,7 +2655,9 @@ const refreshAllStocks = async () => {
           </div>
 
           <div className="summary-item">
-            <span>Down today</span>
+            <span>
+              Down today
+            </span>
 
             <strong className="summary-negative">
               {
@@ -1228,7 +2669,9 @@ const refreshAllStocks = async () => {
           </div>
 
           <div className="summary-item">
-            <span>Best movement</span>
+            <span>
+              Best movement
+            </span>
 
             <strong>
               {dashboard
@@ -1258,7 +2701,9 @@ const refreshAllStocks = async () => {
           </div>
 
           <div className="summary-item">
-            <span>Largest drop</span>
+            <span>
+              Largest drop
+            </span>
 
             <strong>
               {dashboard
@@ -1289,16 +2734,268 @@ const refreshAllStocks = async () => {
         </div>
       </section>
 
-      {/* WATCHLIST */}
+      {/* ===================================================
+          Price Alerts
+          =================================================== */}
+
+      {authenticated && (
+        <section className="dashboard-section">
+          <div className="section-heading">
+            <div>
+              <h2>
+                Price Alerts
+              </h2>
+
+              <p>
+                Get a browser
+                notification when
+                your condition is met.
+              </p>
+            </div>
+
+            <div className="alert-heading-actions">
+              <button
+                type="button"
+                className="notification-button"
+                onClick={
+                  enableBrowserNotifications
+                }
+              >
+                {notificationsEnabled
+                  ? "✓ Notifications on"
+                  : "Enable notifications"}
+              </button>
+
+              <button
+                type="button"
+                className="refresh-all-button"
+                onClick={() =>
+                  openAlertForm()
+                }
+              >
+                + New alert
+              </button>
+            </div>
+          </div>
+
+          {showAlertForm && (
+            <form
+              className="alert-form"
+              onSubmit={
+                createAlert
+              }
+            >
+              <div className="alert-form-title">
+                Create price alert
+              </div>
+
+              <select
+                value={
+                  alertForm.ticker
+                }
+                onChange={(event) =>
+                  setAlertForm(
+                    (previous) => ({
+                      ...previous,
+                      ticker:
+                        event.target
+                          .value,
+                    })
+                  )
+                }
+                required
+              >
+                <option value="">
+                  Select a stock
+                </option>
+
+                {watchlist.map(
+                  (stock) => (
+                    <option
+                      key={
+                        stock._id
+                      }
+                      value={
+                        stock.ticker
+                      }
+                    >
+                      {
+                        stock.ticker
+                      }
+                    </option>
+                  )
+                )}
+              </select>
+
+              <select
+                value={
+                  alertForm.condition
+                }
+                onChange={(event) =>
+                  setAlertForm(
+                    (previous) => ({
+                      ...previous,
+                      condition:
+                        event.target
+                          .value,
+                    })
+                  )
+                }
+              >
+                <option value="below">
+                  Price goes below
+                </option>
+
+                <option value="above">
+                  Price goes above
+                </option>
+              </select>
+
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Target price"
+                value={
+                  alertForm.targetPrice
+                }
+                onChange={(event) =>
+                  setAlertForm(
+                    (previous) => ({
+                      ...previous,
+                      targetPrice:
+                        event.target
+                          .value,
+                    })
+                  )
+                }
+                required
+              />
+
+              <div className="alert-form-actions">
+                <button
+                  type="submit"
+                  className="primary-action"
+                  disabled={
+                    alertLoading
+                  }
+                >
+                  {alertLoading
+                    ? "Creating..."
+                    : "Create alert"}
+                </button>
+
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={() =>
+                    setShowAlertForm(
+                      false
+                    )
+                  }
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+
+          {alerts.length ===
+          0 ? (
+            <div className="nudges-empty">
+              You don't have any
+              price alerts yet.
+            </div>
+          ) : (
+            <div className="alerts-list">
+              {alerts.map(
+                (alert) => (
+                  <div
+                    className="alert-item"
+                    key={
+                      alert._id
+                    }
+                  >
+                    <div>
+                      <strong>
+                        {
+                          alert.ticker
+                        }
+                      </strong>
+
+                      <span>
+                        {alert.condition ===
+                        "below"
+                          ? "Below"
+                          : "Above"}{" "}
+                        ₹
+                        {Number(
+                          alert.targetPrice
+                        ).toLocaleString(
+                          "en-IN"
+                        )}
+                      </span>
+
+                      {alert.triggeredAt && (
+                        <small className="alert-triggered">
+                          Triggered
+                        </small>
+                      )}
+                    </div>
+
+                    <div className="alert-item-actions">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          toggleAlert(
+                            alert._id
+                          )
+                        }
+                        className={
+                          alert.active
+                            ? "alert-active"
+                            : "alert-inactive"
+                        }
+                      >
+                        {alert.active
+                          ? "Active"
+                          : "Off"}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          deleteAlert(
+                            alert._id
+                          )
+                        }
+                        className="alert-remove"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* ===================================================
+          Your Stocks
+          =================================================== */}
 
       <section className="watchlist-section">
         <div className="section-heading">
           <div>
-            <h2>Your Stocks</h2>
+            <h2>
+              Your Stocks
+            </h2>
 
             <p>
-              Explore the stocks you are
-              following.
+              Explore the stocks
+              you are following.
             </p>
           </div>
 
@@ -1310,437 +3007,508 @@ const refreshAllStocks = async () => {
           </span>
         </div>
 
-        {watchlist.length === 0 ? (
+        {watchlist.length ===
+        0 ? (
           <div className="empty-state">
             <div className="empty-icon">
               ✦
             </div>
 
             <h3>
-              Nothing on your watchlist yet
+              Nothing on your
+              watchlist yet
             </h3>
 
             <p>
-              Add a stock above and Nudge
-              will let you know when
-              something meaningful happens.
+              Add a stock above
+              and Nudge will let
+              you know when
+              something meaningful
+              happens.
             </p>
 
             <span className="empty-hint">
-              No noise. Just useful signals.
+              No noise. Just
+              useful signals.
             </span>
           </div>
         ) : (
           <div className="watchlist">
-            {watchlist.map((stock) => {
-              const data =
-                marketData[
-                  stock.ticker
-                ];
+            {watchlist.map(
+              (stock) => {
+                const data =
+                  marketData[
+                    stock.ticker
+                  ];
 
-              const signal =
-                signals[
-                  stock.ticker
-                ];
+                const signal =
+                  signals[
+                    stock.ticker
+                  ];
 
-              const history =
-                priceHistory[
-                  stock.ticker
-                ];
+                const history =
+                  priceHistory[
+                    stock.ticker
+                  ];
 
-              const isPositive =
-                (data?.changePercent ??
-                  0) >= 0;
+                return (
+                  <div
+                    className="stock-card"
+                    id={`stock-${stock.ticker}`}
+                    key={
+                      stock._id
+                    }
+                  >
+                    {/* STOCK HEADER */}
 
-              return (
-                <div
-                  className="stock-card"
-                  id={`stock-${stock.ticker}`}
-                  key={stock._id}
-                >
-                  {/* STOCK HEADER */}
+                    <div className="stock-header">
+                      <div>
+                        <h3 className="stock-name">
+                          {
+                            stock.ticker
+                          }
+                        </h3>
 
-                  <div className="stock-header">
-                    <div>
-                      <h3 className="stock-name">
-                        {stock.ticker}
-                      </h3>
-
-                      <p className="stock-subtitle">
-                        {COMPANY_NAMES[
-                          stock.ticker
-                        ] ||
-                          "Tracked stock"}
-                      </p>
-                    </div>
-
-                    {data && (
-                      <span
-                        className={`market-status ${
-                          data.stale
-                            ? "stale"
-                            : ""
-                        }`}
-                      >
-                        {data.stale
-                          ? "Data delayed"
-                          : "Market data available"}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* MARKET DATA */}
-
-                  {loadingTicker ===
-                    stock.ticker && (
-                    <div className="loading-message">
-                      Checking the latest
-                      market data...
-                    </div>
-                  )}
-
-                  {data ? (
-                    <div className="market-info">
-                      <div className="price-row">
-                        <p className="price">
-                          ₹
-                          {data.price?.toLocaleString(
-                            "en-IN",
-                            {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            }
-                          )}
+                        <p className="stock-subtitle">
+                          {COMPANY_NAMES[
+                            stock
+                              .ticker
+                          ] ||
+                            "Tracked stock"}
                         </p>
-
-                        {data.changePercent !==
-                          null &&
-                          data.changePercent !==
-                            undefined && (
-                            <span
-                              className={`change ${
-                                data.changePercent >
-                                0
-                                  ? "positive"
-                                  : data.changePercent <
-                                    0
-                                  ? "negative"
-                                  : ""
-                              }`}
-                            >
-                              {data.changePercent >
-                              0
-                                ? "+"
-                                : ""}
-                              {data.changePercent.toFixed(
-                                2
-                              )}
-                              %
-                            </span>
-                          )}
                       </div>
 
-                      <p className="volume">
-                        Volume:{" "}
-                        {data.volume
-                          ? data.volume.toLocaleString(
-                              "en-IN"
-                            )
-                          : "—"}
-                      </p>
-
-                      {data.stale && (
-                        <div className="stock-status stale-status">
-                          Data may be delayed.
-                          Showing the last
-                          available price.
-                        </div>
-                      )}
-
-                      {data.unavailable && (
-                        <div className="stock-status unavailable-status">
-                          Market data is
-                          temporarily
-                          unavailable.
-                        </div>
-                      )}
-
-                      {data.hasEnoughHistory ===
-                        false && (
-                        <div className="stock-status history-status">
-                          Not enough history
-                          yet to detect
-                          meaningful
-                          changes.
-                        </div>
-                      )}
-
-                      {history && (
-                        <PriceChart
-                          data={history}
-                        />
-                      )}
-                    </div>
-                  ) : (
-                    <div className="no-data">
-                      <p>
-                        Market data hasn't
-                        been checked yet.
-                      </p>
-
-                      <p>
-                        Check the market to
-                        see what changed.
-                      </p>
-                    </div>
-                  )}
-
-                  {/* SIGNAL */}
-
-                  {data && (
-                    <div className="signal-wrapper">
-                      {signal ? (
-                        <div
-                          className={`signal signal-${signal.urgency?.toLowerCase()}`}
+                      {data && (
+                        <span
+                          className={`market-status ${
+                            data.stale
+                              ? "stale"
+                              : ""
+                          }`}
                         >
-                          <div className="signal-top">
-                            <div>
-                              <span className="signal-label">
-                                Worth a
-                                closer look
-                              </span>
+                          {data.stale
+                            ? "Data delayed"
+                            : "Market data available"}
+                        </span>
+                      )}
+                    </div>
 
-                              <h4>
-                                Something
-                                unusual
-                                happened
-                              </h4>
-                            </div>
+                    {/* MARKET DATA */}
 
-                            <span className="signal-urgency">
-                              {
-                                signal.urgency
-                              }
-                            </span>
-                          </div>
+                    {loadingTicker ===
+                      stock.ticker && (
+                      <div className="loading-message">
+                        Checking the
+                        latest market
+                        data...
+                      </div>
+                    )}
 
-                          <p className="signal-reason">
-                            {
-                              signal.reason
-                            }
+                    {data ? (
+                      <div className="market-info">
+                        <div className="price-row">
+                          <p className="price">
+                            {data.price !==
+                            null
+                              ? `₹${Number(
+                                  data.price
+                                ).toLocaleString(
+                                  "en-IN",
+                                  {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  }
+                                )}`
+                              : "Unavailable"}
                           </p>
 
-                          <div className="signal-evidence">
-                            <div>
-                              <span>
-                                Movement
-                              </span>
-
-                              <strong>
+                          {data.changePercent !==
+                            null &&
+                            data.changePercent !==
+                              undefined && (
+                              <span
+                                className={`change ${
+                                  data.changePercent >
+                                  0
+                                    ? "positive"
+                                    : data.changePercent <
+                                      0
+                                    ? "negative"
+                                    : ""
+                                }`}
+                              >
+                                {data.changePercent >
+                                0
+                                  ? "+"
+                                  : ""}
                                 {Number(
-                                  signal.magnitude
+                                  data.changePercent
                                 ).toFixed(
                                   2
                                 )}
                                 %
-                              </strong>
+                              </span>
+                            )}
+                        </div>
+
+                        <p className="volume">
+                          Volume:{" "}
+                          {data.volume
+                            ? Number(
+                                data.volume
+                              ).toLocaleString(
+                                "en-IN"
+                              )
+                            : "—"}
+                        </p>
+
+                        {data.stale && (
+                          <div className="stock-status stale-status">
+                            Data may be
+                            delayed.
+                            Showing the
+                            last available
+                            price.
+                          </div>
+                        )}
+
+                        {data.unavailable && (
+                          <div className="stock-status unavailable-status">
+                            Market data is
+                            temporarily
+                            unavailable.
+                          </div>
+                        )}
+
+                        {data.hasEnoughHistory ===
+                          false && (
+                          <div className="stock-status history-status">
+                            Not enough
+                            history yet to
+                            detect
+                            meaningful
+                            changes.
+                          </div>
+                        )}
+
+                        {history && (
+                          <PriceChart
+                            data={
+                              history
+                            }
+                          />
+                        )}
+                      </div>
+                    ) : (
+                      <div className="no-data">
+                        <p>
+                          Market data
+                          hasn't been
+                          checked yet.
+                        </p>
+
+                        <p>
+                          Check the market
+                          to see what
+                          changed.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* SIGNAL */}
+
+                    {data && (
+                      <div className="signal-wrapper">
+                        {authenticated &&
+                        signal ? (
+                          <div
+                            className={`signal signal-${signal.urgency?.toLowerCase()}`}
+                          >
+                            <div className="signal-top">
+                              <div>
+                                <span className="signal-label">
+                                  Worth a
+                                  closer look
+                                </span>
+
+                                <h4>
+                                  Something
+                                  unusual
+                                  happened
+                                </h4>
+                              </div>
+
+                              <span className="signal-urgency">
+                                {
+                                  signal.urgency
+                                }
+                              </span>
                             </div>
 
-                            {signal.zScore !==
-                              undefined && (
-                              <div>
-                                <span>
-                                  Unusualness
-                                </span>
-
-                                <strong>
-                                  {Number(
-                                    signal.zScore
-                                  ).toFixed(
-                                    2
-                                  )}
-                                  σ
-                                </strong>
-                              </div>
-                            )}
-
-                            {signal.volumeRatio !==
-                              undefined && (
-                              <div>
-                                <span>
-                                  Volume
-                                </span>
-
-                                <strong>
-                                  {Number(
-                                    signal.volumeRatio
-                                  ).toFixed(
-                                    2
-                                  )}
-                                  ×
-                                </strong>
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="feedback">
-                            <span>
-                              Was this useful?
-                            </span>
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                sendFeedback(
-                                  signal._id,
-                                  "useful"
-                                )
+                            <p className="signal-reason">
+                              {
+                                signal.reason
                               }
-                            >
-                              Useful
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                sendFeedback(
-                                  signal._id,
-                                  "not_for_me"
-                                )
-                              }
-                            >
-                              Not for me
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="signal signal-calm">
-                          <p>
-                            ○ Nothing meaningful
-                            since you last
-                            checked.
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* HISTORY */}
-
-                  {showHistory[
-                    stock.ticker
-                  ] && (
-                    <div className="history">
-                      <h4>
-                        Signal History
-                      </h4>
-
-                      {!signalHistory[
-                        stock.ticker
-                      ] ||
-                      signalHistory[
-                        stock.ticker
-                      ].length === 0 ? (
-                        <p>
-                          No previous meaningful
-                          signals.
-                        </p>
-                      ) : (
-                        signalHistory[
-                          stock.ticker
-                        ].map((event) => (
-                          <div
-                            className="history-item"
-                            key={event._id}
-                          >
-                            <strong>
-                              {event.ticker}
-                            </strong>
-
-                            <p>
-                              {event.reason}
                             </p>
 
-                            <small>
-                              {new Date(
-                                event.createdAt
-                              ).toLocaleString()}
-                            </small>
+                            <div className="signal-evidence">
+                              <div>
+                                <span>
+                                  Movement
+                                </span>
+
+                                <strong>
+                                  {Number(
+                                    signal.magnitude
+                                  ).toFixed(
+                                    2
+                                  )}
+                                  %
+                                </strong>
+                              </div>
+
+                              {signal.zScore !==
+                                undefined && (
+                                <div>
+                                  <span>
+                                    Unusualness
+                                  </span>
+
+                                  <strong>
+                                    {Number(
+                                      signal.zScore
+                                    ).toFixed(
+                                      2
+                                    )}
+                                    σ
+                                  </strong>
+                                </div>
+                              )}
+
+                              {signal.volumeRatio !==
+                                undefined && (
+                                <div>
+                                  <span>
+                                    Volume
+                                  </span>
+
+                                  <strong>
+                                    {Number(
+                                      signal.volumeRatio
+                                    ).toFixed(
+                                      2
+                                    )}
+                                    ×
+                                  </strong>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="feedback">
+                              <span>
+                                Was this
+                                useful?
+                              </span>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  sendFeedback(
+                                    signal._id,
+                                    "useful"
+                                  )
+                                }
+                              >
+                                Useful
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  sendFeedback(
+                                    signal._id,
+                                    "not_for_me"
+                                  )
+                                }
+                              >
+                                Not for me
+                              </button>
+                            </div>
                           </div>
-                        ))
-                      )}
-                    </div>
-                  )}
+                        ) : authenticated ? (
+                          <div className="signal signal-calm">
+                            <p>
+                              ○ Nothing
+                              meaningful
+                              since you
+                              last
+                              checked.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="guest-signal">
+                            Log in to
+                            personalize
+                            signals to your
+                            activity.
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                  {/* ACTIONS */}
+                    {/* ACTIONS */}
 
-                  <div className="actions">
-                    <button
-                      type="button"
-                      className="primary-action"
-                      onClick={() =>
-                        fetchMarketData(
-                          stock.ticker
-                        )
-                      }
-                      disabled={
-                        loadingTicker ===
-                        stock.ticker
-                      }
-                    >
-                      {loadingTicker ===
-                      stock.ticker
-                        ? "Checking..."
-                        : "Check Market"}
-                    </button>
-
-                    <button
-                      type="button"
-                      className="secondary-action"
-                      onClick={() => {
-                        if (
-                          !signalHistory[
+                    <div className="actions">
+                      <button
+                        type="button"
+                        className="primary-action"
+                        onClick={() =>
+                          fetchMarketData(
                             stock.ticker
-                          ]
-                        ) {
-                          fetchSignalHistory(
-                            stock.ticker
-                          );
+                          )
                         }
-
-                        setShowHistory(
-                          (previous) => ({
-                            ...previous,
-                            [stock.ticker]:
-                              !previous[
-                                stock.ticker
-                              ],
-                          })
-                        );
-                      }}
-                    >
-                      {showHistory[
+                        disabled={
+                          loadingTicker ===
+                          stock.ticker
+                        }
+                      >
+                        {loadingTicker ===
                         stock.ticker
-                      ]
-                        ? "Hide History"
-                        : "View History"}
-                    </button>
+                          ? "Checking..."
+                          : "Check Market"}
+                      </button>
 
-                    <button
-                      type="button"
-                      className="remove-action"
-                      onClick={() =>
-                        removeStock(
-                          stock._id
-                        )
-                      }
-                    >
-                      Remove
-                    </button>
+                      <button
+                        type="button"
+                        className="secondary-action"
+                        onClick={() => {
+                          if (
+                            !authenticated
+                          ) {
+                            setShowLoginReminder(
+                              true
+                            );
+
+                            return;
+                          }
+
+                          if (
+                            !signalHistory[
+                              stock.ticker
+                            ]
+                          ) {
+                            fetchSignalHistory(
+                              stock.ticker
+                            );
+                          }
+
+                          setShowHistory(
+                            (
+                              previous
+                            ) => ({
+                              ...previous,
+                              [stock
+                                .ticker]:
+                                !previous[
+                                  stock
+                                    .ticker
+                                ],
+                            })
+                          );
+                        }}
+                      >
+                        {showHistory[
+                          stock.ticker
+                        ]
+                          ? "Hide History"
+                          : "View History"}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="alert-action"
+                        onClick={() =>
+                          openAlertForm(
+                            stock.ticker
+                          )
+                        }
+                      >
+                        🔔 Set Alert
+                      </button>
+
+                      <button
+                        type="button"
+                        className="remove-action"
+                        onClick={() =>
+                          removeStock(
+                            stock._id
+                          )
+                        }
+                      >
+                        Remove
+                      </button>
+                    </div>
+
+                    {/* HISTORY */}
+
+                    {showHistory[
+                      stock.ticker
+                    ] && (
+                      <div className="history">
+                        <h4>
+                          Signal History
+                        </h4>
+
+                        {!signalHistory[
+                          stock.ticker
+                        ] ||
+                        signalHistory[
+                          stock.ticker
+                        ].length ===
+                          0 ? (
+                          <p>
+                            No previous
+                            meaningful
+                            signals.
+                          </p>
+                        ) : (
+                          signalHistory[
+                            stock.ticker
+                          ].map(
+                            (event) => (
+                              <div
+                                className="history-item"
+                                key={
+                                  event._id
+                                }
+                              >
+                                <strong>
+                                  {
+                                    event.ticker
+                                  }
+                                </strong>
+
+                                <p>
+                                  {
+                                    event.reason
+                                  }
+                                </p>
+
+                                <small>
+                                  {new Date(
+                                    event.createdAt
+                                  ).toLocaleString()}
+                                </small>
+                              </div>
+                            )
+                          )
+                        )}
+                      </div>
+                    )}
                   </div>
-                </div>
-              );
-            })}
+                );
+              }
+            )}
           </div>
         )}
       </section>
