@@ -6,30 +6,14 @@ import {
 
 import "./App.css";
 
-/* =========================================================
-   Configuration
-   ========================================================= */
+const API_URL = import.meta.env.DEV
+  ? "http://localhost:5000"
+  : "https://nudge-obc3.onrender.com";
 
-const API_URL =
-  import.meta.env.DEV
-    ? "http://localhost:5000"
-    : "https://nudge-obc3.onrender.com";
-
-const TOKEN_KEY =
-  "nudge_auth_token";
-
-const GUEST_ID_KEY =
-  "nudge_guest_id";
-
-const GUEST_MODE_KEY =
-  "nudge_guest_mode";
-
-const GUEST_USED_KEY =
-  "nudge_guest_used";
-
-/* =========================================================
-   Company names
-   ========================================================= */
+const TOKEN_KEY = "nudge_auth_token";
+const GUEST_ID_KEY = "nudge_guest_id";
+const GUEST_MODE_KEY = "nudge_guest_mode";
+const GUEST_USED_KEY = "nudge_guest_used";
 
 const COMPANY_NAMES = {
   RELIANCE: "Reliance Industries",
@@ -45,17 +29,15 @@ const COMPANY_NAMES = {
 };
 
 /* =========================================================
-   Storage helpers
+   Helpers
    ========================================================= */
 
 const getGuestId = () => {
   let guestId =
-    localStorage.getItem(
-      GUEST_ID_KEY
-    );
+    localStorage.getItem(GUEST_ID_KEY);
 
   if (!guestId) {
-    guestId = crypto.randomUUID();
+    guestId = `guest-${crypto.randomUUID()}`;
 
     localStorage.setItem(
       GUEST_ID_KEY,
@@ -67,9 +49,7 @@ const getGuestId = () => {
 };
 
 const getToken = () => {
-  return localStorage.getItem(
-    TOKEN_KEY
-  );
+  return localStorage.getItem(TOKEN_KEY);
 };
 
 const getRequestHeaders = (
@@ -95,52 +75,30 @@ const getRequestHeaders = (
   return headers;
 };
 
-/* =========================================================
-   Push helpers
-   ========================================================= */
 
-const urlBase64ToUint8Array = (
-  value
-) => {
-  const padding =
-    "=".repeat(
-      (4 -
-        (value.length % 4)) %
-        4
-    );
-
-  const base64 =
-    (
-      value + padding
-    )
-      .replace(/-/g, "+")
-      .replace(/_/g, "/");
-
-  const rawData =
-    window.atob(base64);
-
-  return Uint8Array.from(
-    [...rawData].map(
-      (character) =>
-        character.charCodeAt(0)
-    )
-  );
-};
+const getDefaultDashboard = () => ({
+  marketOverview: [],
+  watchlistSummary: {
+    total: 0,
+    up: 0,
+    down: 0,
+    unchanged: 0,
+    best: null,
+    worst: null,
+  },
+  nudges: [],
+  stocks: [],
+});
 
 /* =========================================================
    Price Chart
    ========================================================= */
 
 function PriceChart({ data }) {
-  const [
-    hoveredPoint,
-    setHoveredPoint,
-  ] = useState(null);
+  const [hoveredPoint, setHoveredPoint] =
+    useState(null);
 
-  if (
-    !data ||
-    data.length < 2
-  ) {
+  if (!data || data.length < 2) {
     return (
       <div className="chart-placeholder">
         Not enough price history yet.
@@ -156,17 +114,12 @@ function PriceChart({ data }) {
   const paddingTop = 10;
   const paddingBottom = 24;
 
-  const prices = data.map(
-    (point) =>
-      Number(point.price)
+  const prices = data.map((point) =>
+    Number(point.price)
   );
 
-  const minPrice =
-    Math.min(...prices);
-
-  const maxPrice =
-    Math.max(...prices);
-
+  const minPrice = Math.min(...prices);
+  const maxPrice = Math.max(...prices);
   const priceRange =
     maxPrice - minPrice || 1;
 
@@ -176,8 +129,7 @@ function PriceChart({ data }) {
 
   const overallChange =
     firstPrice > 0
-      ? ((lastPrice -
-          firstPrice) /
+      ? ((lastPrice - firstPrice) /
           firstPrice) *
         100
       : 0;
@@ -194,8 +146,7 @@ function PriceChart({ data }) {
 
   const getX = (index) =>
     paddingLeft +
-    (index /
-      (data.length - 1)) *
+    (index / (data.length - 1)) *
       (width -
         paddingLeft -
         paddingRight);
@@ -203,8 +154,7 @@ function PriceChart({ data }) {
   const getY = (price) =>
     paddingTop +
     (1 -
-      (price -
-        minPrice) /
+      (price - minPrice) /
         priceRange) *
       (height -
         paddingTop -
@@ -224,9 +174,7 @@ function PriceChart({ data }) {
       height - paddingBottom
     }`,
     points,
-    `${getX(
-      data.length - 1
-    )},${
+    `${getX(data.length - 1)},${
       height - paddingBottom
     }`,
   ].join(" ");
@@ -247,8 +195,7 @@ function PriceChart({ data }) {
 
   const yLabels = [
     maxPrice,
-    minPrice +
-      priceRange / 2,
+    minPrice + priceRange / 2,
     minPrice,
   ];
 
@@ -277,9 +224,7 @@ function PriceChart({ data }) {
             {overallChange >= 0
               ? "+"
               : ""}
-            {overallChange.toFixed(
-              2
-            )}
+            {overallChange.toFixed(2)}
             %
           </span>
 
@@ -304,21 +249,19 @@ function PriceChart({ data }) {
             >
               <stop
                 offset="0%"
-                stopColor={
-                  chartColor
-                }
+                stopColor={chartColor}
                 stopOpacity="0.20"
               />
 
               <stop
                 offset="100%"
-                stopColor={
-                  chartColor
-                }
+                stopColor={chartColor}
                 stopOpacity="0"
               />
             </linearGradient>
           </defs>
+
+          {/* Grid */}
 
           {[0, 1, 2].map(
             (index) => {
@@ -345,10 +288,14 @@ function PriceChart({ data }) {
             }
           )}
 
+          {/* Shading */}
+
           <polygon
             points={areaPoints}
             fill={`url(#${gradientId})`}
           />
+
+          {/* Main line */}
 
           <polyline
             points={points}
@@ -359,6 +306,8 @@ function PriceChart({ data }) {
             strokeLinejoin="round"
           />
 
+          {/* Data points */}
+
           {data.map(
             (point, index) => {
               const x =
@@ -366,9 +315,7 @@ function PriceChart({ data }) {
 
               const y =
                 getY(
-                  Number(
-                    point.price
-                  )
+                  Number(point.price)
                 );
 
               const isHovered =
@@ -392,19 +339,21 @@ function PriceChart({ data }) {
                       index,
                       x,
                       y,
-                      date:
-                        point.date,
-                      price:
-                        point.price,
+                      date: point.date,
+                      price: point.price,
                     })
                   }
                   onMouseLeave={() =>
-                    setHoveredPoint(null)
+                    setHoveredPoint(
+                      null
+                    )
                   }
                 />
               );
             }
           )}
+
+          {/* Current price bubble */}
 
           <g
             transform={`translate(
@@ -441,6 +390,8 @@ function PriceChart({ data }) {
               ).toFixed(2)}
             </text>
           </g>
+
+          {/* Hover tooltip */}
 
           {hoveredPoint && (
             <g
@@ -499,6 +450,8 @@ function PriceChart({ data }) {
             </g>
           )}
 
+          {/* Y-axis */}
+
           {yLabels.map(
             (price, index) => {
               const y =
@@ -524,6 +477,8 @@ function PriceChart({ data }) {
               );
             }
           )}
+
+          {/* X-axis */}
 
           {dateIndexes.map(
             (index) => {
@@ -558,247 +513,47 @@ function PriceChart({ data }) {
 }
 
 /* =========================================================
-   Authentication Screen
-   ========================================================= */
-
-function AuthScreen({
-  mode,
-  setMode,
-  email,
-  setEmail,
-  password,
-  setPassword,
-  onSubmit,
-  onGuest,
-  loading,
-  error,
-}) {
-  return (
-    <div className="auth-page">
-      <div className="auth-card">
-        <div className="auth-brand">
-          <div className="logo-mark">
-            N
-          </div>
-
-          <h1>Nudge</h1>
-        </div>
-
-        <p className="auth-subtitle">
-          Track what matters.
-          Know what changed.
-        </p>
-
-        <div className="auth-tabs">
-          <button
-            type="button"
-            className={
-              mode === "login"
-                ? "active"
-                : ""
-            }
-            onClick={() =>
-              setMode("login")
-            }
-          >
-            Log in
-          </button>
-
-          <button
-            type="button"
-            className={
-              mode === "signup"
-                ? "active"
-                : ""
-            }
-            onClick={() =>
-              setMode("signup")
-            }
-          >
-            Create account
-          </button>
-        </div>
-
-        <form
-          className="auth-form"
-          onSubmit={onSubmit}
-        >
-          <label>
-            Email
-            <input
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(event) =>
-                setEmail(
-                  event.target.value
-                )
-              }
-              required
-            />
-          </label>
-
-          <label>
-            Password
-            <input
-              type="password"
-              placeholder="At least 8 characters"
-              value={password}
-              onChange={(event) =>
-                setPassword(
-                  event.target.value
-                )
-              }
-              minLength={8}
-              required
-            />
-          </label>
-
-          {error && (
-            <div className="auth-error">
-              {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            className="auth-submit"
-            disabled={loading}
-          >
-            {loading
-              ? "Please wait..."
-              : mode === "login"
-              ? "Log in"
-              : "Create account"}
-          </button>
-        </form>
-
-        <div className="auth-divider">
-          <span>or</span>
-        </div>
-
-        <button
-          type="button"
-          className="guest-button"
-          onClick={onGuest}
-        >
-          Continue without login
-        </button>
-
-        <p className="auth-note">
-          Use Nudge as a guest
-          or create an account to
-          save your progress.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-/* =========================================================
-   Login reminder
-   ========================================================= */
-
-function LoginReminder({
-  onLogin,
-  onDismiss,
-}) {
-  return (
-    <div className="login-reminder">
-      <div className="login-reminder-content">
-        <strong>
-          Save your progress
-        </strong>
-
-        <span>
-          Log in for a better
-          experience and to keep
-          your watchlist and alerts.
-        </span>
-      </div>
-
-      <div className="login-reminder-actions">
-        <button
-          type="button"
-          onClick={onLogin}
-        >
-          Log in
-        </button>
-
-        <button
-          type="button"
-          className="dismiss-button"
-          onClick={onDismiss}
-          aria-label="Dismiss login reminder"
-        >
-          ×
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* =========================================================
-   Main App
+   App
    ========================================================= */
 
 function App() {
-  /* -------------------------------------------------------
-     Initial identity state
-     ------------------------------------------------------- */
-
-  const initialToken =
-    localStorage.getItem(
-      TOKEN_KEY
-    );
-
-  const initialGuestMode =
-    localStorage.getItem(
-      GUEST_MODE_KEY
-    ) === "true";
+  /* =========================
+     Authentication
+     ========================= */
 
   const [authReady, setAuthReady] =
-    useState(!initialToken);
+    useState(false);
 
   const [authenticated, setAuthenticated] =
-    useState(Boolean(initialToken));
-
-  const [guestMode, setGuestMode] =
-    useState(initialGuestMode);
+    useState(false);
 
   const [user, setUser] =
     useState(null);
 
-  /* -------------------------------------------------------
-     Authentication form
-     ------------------------------------------------------- */
+  const [authScreenOpen, setAuthScreenOpen] =
+    useState(false);
+
+  const [guestPromptOpen, setGuestPromptOpen] =
+    useState(false);
 
   const [authMode, setAuthMode] =
     useState("login");
 
-  const [email, setEmail] =
+  const [authEmail, setAuthEmail] =
     useState("");
 
-  const [password, setPassword] =
+  const [authPassword, setAuthPassword] =
     useState("");
 
-  const [authError, setAuthError] =
+  const [authMessage, setAuthMessage] =
     useState("");
 
   const [authLoading, setAuthLoading] =
     useState(false);
 
-  const [showLoginReminder, setShowLoginReminder] =
-    useState(
-      initialGuestMode &&
-        localStorage.getItem(
-          GUEST_USED_KEY
-        ) === "true"
-    );
-
-  /* -------------------------------------------------------
-     Watchlist + market state
-     ------------------------------------------------------- */
+  /* =========================
+     Main application state
+     ========================= */
 
   const [watchlist, setWatchlist] =
     useState([]);
@@ -808,6 +563,8 @@ function App() {
 
   const [errorMessage, setErrorMessage] =
     useState("");
+
+    const [activity] = useState([]);
 
   const [marketData, setMarketData] =
     useState({});
@@ -825,247 +582,47 @@ function App() {
     useState({});
 
   const [dashboard, setDashboard] =
-    useState({
-      marketOverview: [],
-      watchlistSummary: {
-        total: 0,
-        up: 0,
-        down: 0,
-        unchanged: 0,
-        best: null,
-        worst: null,
-      },
-      nudges: [],
-      stocks: [],
-    });
+    useState(getDefaultDashboard());
 
   const [loadingTicker, setLoadingTicker] =
     useState(null);
 
-  const [refreshingAll, setRefreshingAll] =
-    useState(false);
-
   const [toast, setToast] =
     useState("");
 
-  /* -------------------------------------------------------
-     Alerts
-     ------------------------------------------------------- */
-
-  const [alerts, setAlerts] =
-    useState([]);
-
-  const [alertForm, setAlertForm] =
-    useState({
-      ticker: "",
-      condition: "below",
-      targetPrice: "",
-    });
-
-  const [showAlertForm, setShowAlertForm] =
+  const [refreshingAll, setRefreshingAll] =
     useState(false);
 
-  const [alertLoading, setAlertLoading] =
-    useState(false);
 
-  const [notificationsEnabled, setNotificationsEnabled] =
-    useState(
-      typeof Notification !==
-        "undefined" &&
-        Notification.permission ===
-          "granted"
-    );
-
-  /* =======================================================
-     Dashboard loading
-     ======================================================= */
-
-const loadDashboard = useCallback(async () => {
-  try {
-    const [
-      watchlistResponse,
-      dashboardResponse,
-    ] = await Promise.all([
-      fetch(
-        `${API_URL}/api/watchlist`,
-        {
-          headers: getRequestHeaders(),
-        }
-      ),
-
-      fetch(
-        `${API_URL}/api/dashboard`,
-        {
-          headers: getRequestHeaders(),
-        }
-      ),
-    ]);
-
-    const watchlistData =
-      await watchlistResponse.json();
-
-    const dashboardData =
-      await dashboardResponse.json();
-
-    /* -----------------------------------------------------
-       Watchlist
-       ----------------------------------------------------- */
-
-    if (watchlistResponse.ok) {
-      setWatchlist(watchlistData);
-    }
-
-    /* -----------------------------------------------------
-       Dashboard
-       ----------------------------------------------------- */
-
-    if (dashboardResponse.ok) {
-      setDashboard(dashboardData);
-      setErrorMessage("");
-
-      /* ---------------------------------------------------
-         Populate stock cards immediately.
-
-         dashboard.stocks already contains:
-         - price
-         - changePercent
-         - stale
-         - unavailable
-         - hasEnoughHistory
-         --------------------------------------------------- */
-
-      if (
-        Array.isArray(
-          dashboardData.stocks
-        )
-      ) {
-        const stockMarketData = {};
-
-        for (const stock of dashboardData.stocks) {
-          stockMarketData[
-            stock.ticker
-          ] = {
-            ticker: stock.ticker,
-            price: stock.price,
-            changePercent:
-              stock.changePercent,
-            stale: Boolean(
-              stock.stale
-            ),
-            unavailable: Boolean(
-              stock.unavailable
-            ),
-            hasEnoughHistory:
-              Boolean(
-                stock.hasEnoughHistory
-              ),
-            capturedAt:
-              stock.capturedAt ||
-              null,
-          };
-        }
-
-        setMarketData(
-          (previous) => ({
-            ...previous,
-            ...stockMarketData,
-          })
-        );
-      }
-    } else {
-      setErrorMessage(
-        dashboardData.message ||
-          "Could not load market dashboard."
-      );
-    }
-  } catch (error) {
-    console.error(
-      "Dashboard loading error:",
-      error
-    );
-
-    setErrorMessage(
-      "Could not load market dashboard."
-    );
-  }
-}, []);
-
-const loadPriceHistory =
-  useCallback(async (stockTicker) => {
-    try {
-      const response =
-        await fetch(
-          `${API_URL}/api/market/${stockTicker}/history`,
-          {
-            headers:
-              getRequestHeaders(),
-          }
-        );
-
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-        return;
-      }
-
-      setPriceHistory(
-        (previous) => ({
-          ...previous,
-          [stockTicker]:
-            data,
-        })
-      );
-    } catch (error) {
-      console.error(
-        `Price history error for ${stockTicker}:`,
-        error
-      );
-    }
-  }, []);
+  /* =========================================================
+     Session restore
+     ========================================================= */
 
   useEffect(() => {
-  if (
-    !authReady ||
-    watchlist.length === 0
-  ) {
-    return;
-  }
+    let mounted = true;
 
-  const loadAllHistory =
-    async () => {
-      await Promise.all(
-        watchlist.map(
-          (stock) =>
-            loadPriceHistory(
-              stock.ticker
-            )
-        )
-      );
-    };
+    const restoreSession = async () => {
+      const token = getToken();
 
-  loadAllHistory();
-}, [
-  authReady,
-  watchlist,
-  loadPriceHistory,
-]);
+      if (!token) {
+        const guestMode =
+          localStorage.getItem(GUEST_MODE_KEY) ===
+          "true";
 
-  /* =======================================================
-     Alert loading
-     ======================================================= */
+        if (mounted) {
+          setAuthenticated(false);
+          setUser(null);
+          setAuthScreenOpen(!guestMode);
+          setAuthReady(true);
+        }
 
-  const loadAlerts =
-    useCallback(async () => {
-      if (!authenticated) {
-        setAlerts([]);
         return;
       }
 
       try {
         const response =
           await fetch(
-            `${API_URL}/api/alerts`,
+            `${API_URL}/api/auth/me`,
             {
               headers:
                 getRequestHeaders(),
@@ -1075,337 +632,197 @@ const loadPriceHistory =
         const data =
           await response.json();
 
-        if (response.ok) {
-          setAlerts(data);
+        if (!response.ok) {
+          throw new Error(
+            data.message ||
+              "Session expired."
+          );
+        }
+
+        if (mounted) {
+          setAuthenticated(true);
+          setUser(data.user);
+          localStorage.setItem(
+            GUEST_MODE_KEY,
+            "false"
+          );
         }
       } catch (error) {
         console.error(
-          "Alert loading error:",
+          "Session restore error:",
           error
+        );
+
+        localStorage.removeItem(
+          TOKEN_KEY
+        );
+
+        const guestMode =
+          localStorage.getItem(GUEST_MODE_KEY) ===
+          "true";
+
+        if (mounted) {
+          setAuthenticated(false);
+          setUser(null);
+          setAuthScreenOpen(!guestMode);
+        }
+      } finally {
+        if (mounted) {
+          setAuthReady(true);
+        }
+      }
+    };
+
+    restoreSession();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+
+  /* =========================================================
+     Dashboard
+     ========================================================= */
+
+  const loadDashboard =
+    useCallback(async () => {
+      try {
+        const [
+          watchlistResponse,
+          dashboardResponse,
+        ] = await Promise.all([
+          fetch(
+            `${API_URL}/api/watchlist`,
+            {
+              headers:
+                getRequestHeaders(),
+            }
+          ),
+
+          fetch(
+            `${API_URL}/api/dashboard`,
+            {
+              headers:
+                getRequestHeaders(),
+            }
+          ),
+        ]);
+
+        const watchlistData =
+          await watchlistResponse.json();
+
+        const dashboardData =
+          await dashboardResponse.json();
+
+        if (watchlistResponse.ok) {
+          setWatchlist(
+            Array.isArray(
+              watchlistData
+            )
+              ? watchlistData
+              : []
+          );
+        }
+
+        if (dashboardResponse.ok) {
+          setDashboard(
+            dashboardData
+          );
+
+          setErrorMessage("");
+        } else if (
+          dashboardResponse.status ===
+            401 &&
+          !authenticated
+        ) {
+          setDashboard(
+            getDefaultDashboard()
+          );
+
+          setErrorMessage("");
+        } else {
+          setErrorMessage(
+            dashboardData.message ||
+              "Could not load market dashboard."
+          );
+        }
+      } catch (error) {
+        console.error(
+          "Dashboard loading error:",
+          error
+        );
+
+        setErrorMessage(
+          "Could not load market dashboard."
         );
       }
     }, [authenticated]);
 
-  /* =======================================================
-     Restore existing login session
-     ======================================================= */
+  /* =========================================================
+     Guest mode
+     ========================================================= */
 
-  useEffect(() => {
-    if (!initialToken) {
-      return;
-    }
+  const continueAsGuest = () => {
+    localStorage.setItem(
+      GUEST_MODE_KEY,
+      "true"
+    );
 
-    let cancelled = false;
-
-    const verifySession =
-      async () => {
-        try {
-          const response =
-            await fetch(
-              `${API_URL}/api/auth/me`,
-              {
-                headers:
-                  getRequestHeaders(),
-              }
-            );
-
-          if (!response.ok) {
-            localStorage.removeItem(
-              TOKEN_KEY
-            );
-
-            if (!cancelled) {
-              setAuthenticated(
-                false
-              );
-              setGuestMode(
-                false
-              );
-            }
-
-            return;
-          }
-
-          const data =
-            await response.json();
-
-          if (!cancelled) {
-            setUser(
-              data.user
-            );
-
-            setAuthenticated(
-              true
-            );
-
-            setGuestMode(
-              false
-            );
-          }
-        } catch (error) {
-          console.error(
-            "Session verification error:",
-            error
-          );
-
-          localStorage.removeItem(
-            TOKEN_KEY
-          );
-
-          if (!cancelled) {
-            setAuthenticated(
-              false
-            );
-            setGuestMode(
-              false
-            );
-          }
-        } finally {
-          if (!cancelled) {
-            setAuthReady(true);
-          }
-        }
-      };
-
-    verifySession();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [initialToken]);
-
-  /* =======================================================
-     Load app data
-     ======================================================= */
-
- useEffect(() => {
-  if (!authReady) {
-    return;
-  }
-
-  const timer = setTimeout(() => {
-    loadDashboard();
-
-    if (authenticated) {
-      loadAlerts();
-    }
-  }, 0);
-
-  return () => {
-    clearTimeout(timer);
-  };
-}, [
-  authReady,
-  authenticated,
-  loadDashboard,
-  loadAlerts,
-]);
-
-  /* =======================================================
-     Authentication
-     ======================================================= */
-
-  const handleAuth =
-    async (event) => {
-      event.preventDefault();
-
-      setAuthError("");
-      setAuthLoading(true);
-
-      try {
-        const endpoint =
-          authMode === "login"
-            ? "/api/auth/login"
-            : "/api/auth/register";
-
-        const response =
-          await fetch(
-            `${API_URL}${endpoint}`,
-            {
-              method: "POST",
-              headers:
-                getRequestHeaders(
-                  true
-                ),
-              body: JSON.stringify({
-                email:
-                  email
-                    .trim()
-                    .toLowerCase(),
-
-                password,
-              }),
-            }
-          );
-
-        const data =
-          await response.json();
-
-        if (!response.ok) {
-          setAuthError(
-            data.message ||
-              "Authentication failed."
-          );
-          return;
-        }
-
-        localStorage.setItem(
-          TOKEN_KEY,
-          data.token
-        );
-
-        setUser(data.user);
-        setAuthenticated(
-          true
-        );
-        setGuestMode(
-          false
-        );
-
-        localStorage.removeItem(
-          GUEST_MODE_KEY
-        );
-
-        /*
-         * Move the guest watchlist
-         * into the new account.
-         */
-        try {
-          await fetch(
-            `${API_URL}/api/auth/migrate-guest`,
-            {
-              method: "POST",
-              headers:
-                getRequestHeaders(
-                  true
-                ),
-              body: JSON.stringify({
-                guestId:
-                  getGuestId(),
-              }),
-            }
-          );
-        } catch (migrationError) {
-          console.error(
-            "Guest migration error:",
-            migrationError
-          );
-        }
-
-        setEmail("");
-        setPassword("");
-        setAuthError("");
-        setShowLoginReminder(
-          false
-        );
-        setAuthReady(true);
-
-        await loadDashboard();
-        await loadAlerts();
-      } catch (error) {
-        console.error(
-          "Authentication error:",
-          error
-        );
-
-        setAuthError(
-          "Could not connect to Nudge."
-        );
-      } finally {
-        setAuthLoading(false);
-      }
-    };
-
-  const continueAsGuest =
-    () => {
-      getGuestId();
-
-      localStorage.setItem(
-        GUEST_MODE_KEY,
-        "true"
-      );
-
-      localStorage.setItem(
-        GUEST_USED_KEY,
-        "true"
-      );
-
-      setGuestMode(true);
-      setAuthenticated(
-        false
-      );
-      setAuthReady(true);
-      setShowLoginReminder(
-        true
-      );
-
-      loadDashboard();
-    };
-
-  const openLogin = () => {
-    setAuthMode("login");
-    setAuthError("");
-    setGuestMode(false);
+    setGuestPromptOpen(false);
+    setAuthScreenOpen(false);
+    setAuthMessage("");
   };
 
-  const logout = () => {
-    localStorage.removeItem(
-      TOKEN_KEY
-    );
+  /* =========================================================
+     Authentication submit
+     ========================================================= */
 
-    localStorage.removeItem(
-      GUEST_MODE_KEY
-    );
-
-    setUser(null);
-    setAuthenticated(
-      false
-    );
-    setGuestMode(false);
-    setAlerts([]);
-    setNotificationsEnabled(
-      false
-    );
-
-    setAuthMode("login");
-    setEmail("");
-    setPassword("");
-    setAuthError("");
-    setAuthReady(true);
-  };
-
-  /* =======================================================
-     Add stock
-     ======================================================= */
-
-  const addStock = async (event) => {
+const submitAuth = async (event) => {
   event.preventDefault();
 
-  setErrorMessage("");
+  setAuthMessage("");
 
-  const cleanTicker =
-    ticker.trim().toUpperCase();
+  const email = authEmail.trim();
 
-  if (!cleanTicker) {
-    setErrorMessage(
-      "Please enter a stock ticker."
+  if (!email) {
+    setAuthMessage(
+      "Please enter your email address."
     );
     return;
   }
 
-  try {
-    /* -----------------------------------------------------
-       Add the stock
-       ----------------------------------------------------- */
+  if (!authPassword) {
+    setAuthMessage(
+      "Please enter your password."
+    );
+    return;
+  }
 
+  setAuthLoading(true);
+
+  try {
+    /*
+     * Save the guest ID BEFORE logging in.
+     * This is the ID that owns the guest watchlist.
+     */
+    const guestId =
+      localStorage.getItem(
+        GUEST_ID_KEY
+      );
+
+    /*
+     * Login / register
+     */
     const response = await fetch(
-      `${API_URL}/api/watchlist`,
+      `${API_URL}/api/auth/${authMode}`,
       {
         method: "POST",
         headers:
           getRequestHeaders(true),
         body: JSON.stringify({
-          ticker: cleanTicker,
+          email,
+          password: authPassword,
         }),
       }
     );
@@ -1414,72 +831,86 @@ const loadPriceHistory =
       await response.json();
 
     if (!response.ok) {
-      setErrorMessage(
+      throw new Error(
         data.message ||
-          "Could not add this stock."
+          "Authentication failed."
       );
-      return;
     }
 
-    /* -----------------------------------------------------
-       Update the watchlist immediately
-       ----------------------------------------------------- */
-
-    setWatchlist((previous) => [
-      ...previous,
-      data,
-    ]);
-
-    setTicker("");
-
-    /* -----------------------------------------------------
-       Guest reminder
-       ----------------------------------------------------- */
-
-    if (!authenticated) {
-      localStorage.setItem(
-        GUEST_USED_KEY,
-        "true"
+    if (!data.token) {
+      throw new Error(
+        "No authentication token was returned."
       );
-
-      localStorage.setItem(
-        GUEST_MODE_KEY,
-        "true"
-      );
-
-      setShowLoginReminder(true);
     }
-
-    /* -----------------------------------------------------
-       Fetch the new stock's current data
-       ----------------------------------------------------- */
-
-    await fetchMarketData(
-      cleanTicker
-    );
-
-    /* -----------------------------------------------------
-       Reload dashboard so:
-       - summary updates
-       - stock count updates
-       - nudges update
-       ----------------------------------------------------- */
-
-    await loadDashboard();
 
     /*
-     * History is normally loaded automatically
-     * by the watchlist/history effect.
-     *
-     * Calling it here as well makes the new
-     * stock appear faster.
+     * Store the token first.
+     * From this point onward, getRequestHeaders()
+     * will send Authorization: Bearer <token>.
      */
-    await loadPriceHistory(
-      cleanTicker
+    localStorage.setItem(
+      TOKEN_KEY,
+      data.token
     );
 
+    localStorage.setItem(
+      GUEST_MODE_KEY,
+      "false"
+    );
+
+    /*
+     * Update React auth state.
+     */
+    setAuthenticated(true);
+    setUser(data.user);
+    setAuthMessage("");
+    setAuthScreenOpen(false);
+    setGuestPromptOpen(false);
+    setAuthEmail("");
+    setAuthPassword("");
+
+    /*
+     * Move the guest watchlist into the account.
+     */
+    if (guestId) {
+      const migrationResponse =
+        await fetch(
+          `${API_URL}/api/auth/migrate-guest`,
+          {
+            method: "POST",
+            headers:
+              getRequestHeaders(true),
+            body: JSON.stringify({
+              guestId,
+            }),
+          }
+        );
+
+      const migrationData =
+        await migrationResponse.json();
+
+      if (!migrationResponse.ok) {
+        throw new Error(
+          migrationData.message ||
+            "Could not move your guest watchlist into your account."
+        );
+      }
+
+      console.log(
+        "Guest migration result:",
+        migrationData
+      );
+    }
+
+    /*
+     * Reload the dashboard ONLY after migration.
+     */
+    await loadDashboard();
+
     setToast(
-      `${cleanTicker} added to your watchlist.`
+      authMode === "login"
+        ? "Welcome back to Nudge."
+        : "Your Nudge account is ready."
     );
 
     setTimeout(() => {
@@ -1487,20 +918,116 @@ const loadPriceHistory =
     }, 2500);
   } catch (error) {
     console.error(
-      "Add stock error:",
+      "Authentication error:",
       error
     );
 
-    setErrorMessage(
-      "Could not connect to the market service. Please try again."
+    setAuthMessage(
+      error.message ||
+        "Could not complete authentication."
     );
+  } finally {
+    setAuthLoading(false);
   }
 };
 
+  /* =========================================================
+     Logout
+     ========================================================= */
 
-  /* =======================================================
+  const logout = async () => {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(GUEST_MODE_KEY);
+
+    setAuthenticated(false);
+    setUser(null);
+    setAuthScreenOpen(true);
+    setGuestPromptOpen(false);
+
+    setToast("You have been logged out.");
+
+    setTimeout(() => {
+      setToast("");
+    }, 2500);
+  };
+
+  /* =========================================================
+     Add stock
+     ========================================================= */
+
+  const addStock = async (
+    event
+  ) => {
+    event.preventDefault();
+
+    setErrorMessage("");
+
+    const cleanTicker =
+      ticker.trim().toUpperCase();
+
+    if (!cleanTicker) {
+      setErrorMessage(
+        "Please enter a stock ticker."
+      );
+      return;
+    }
+
+    try {
+      const response =
+        await fetch(
+          `${API_URL}/api/watchlist`,
+          {
+            method: "POST",
+            headers:
+              getRequestHeaders(true),
+            body: JSON.stringify({
+              ticker:
+                cleanTicker,
+            }),
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        setErrorMessage(
+          data.message ||
+            "Could not add this stock."
+        );
+        return;
+      }
+
+      setWatchlist(
+        (previous) => [
+          ...previous,
+          data,
+        ]
+      );
+
+      setTicker("");
+
+      localStorage.setItem(
+        GUEST_USED_KEY,
+        "true"
+      );
+
+      await loadDashboard();
+    } catch (error) {
+      console.error(
+        "Add stock error:",
+        error
+      );
+
+      setErrorMessage(
+        "Could not connect to the market service. Please try again."
+      );
+    }
+  };
+
+  /* =========================================================
      Fetch market data
-     ======================================================= */
+     ========================================================= */
 
   const fetchMarketData =
     async (stockTicker) => {
@@ -1540,48 +1067,84 @@ const loadPriceHistory =
           })
         );
 
-        /* -------------------------------------------------
-           Price history
-           ------------------------------------------------- */
+        /* Price history */
 
-        await loadPriceHistory(
-  stockTicker
-);
-
-        /* -------------------------------------------------
-           Logged-in personalization
-           ------------------------------------------------- */
-
-        if (authenticated) {
-          const viewResponse =
+        try {
+          const historyResponse =
             await fetch(
-              `${API_URL}/api/market/${stockTicker}/view`,
+              `${API_URL}/api/market/${stockTicker}/history`,
               {
-                method: "POST",
                 headers:
-                  getRequestHeaders(
-                    true
-                  ),
+                  getRequestHeaders(),
               }
             );
 
-          const viewData =
-            await viewResponse.json();
+          const historyData =
+            await historyResponse.json();
 
           if (
-            viewResponse.ok
+            historyResponse.ok
           ) {
-            setSignals(
+            setPriceHistory(
               (previous) => ({
                 ...previous,
                 [stockTicker]:
-                  viewData.signalEvent,
+                  historyData,
               })
+            );
+          }
+        } catch (
+          historyError
+        ) {
+          console.error(
+            "Price history error:",
+            historyError
+          );
+        }
+
+        /* Update personalized view only for authenticated users */
+
+        if (authenticated) {
+          try {
+            const viewResponse =
+              await fetch(
+                `${API_URL}/api/market/${stockTicker}/view`,
+                {
+                  method: "POST",
+                  headers:
+                    getRequestHeaders(
+                      true
+                    ),
+                }
+              );
+
+            const viewData =
+              await viewResponse.json();
+
+            if (
+              viewResponse.ok
+            ) {
+              setSignals(
+                (previous) => ({
+                  ...previous,
+                  [stockTicker]:
+                    viewData.signalEvent,
+                })
+              );
+            }
+          } catch (
+            viewError
+          ) {
+            console.error(
+              "View update error:",
+              viewError
             );
           }
         }
 
         await loadDashboard();
+
+
       } catch (error) {
         console.error(
           "Market data error:",
@@ -1592,34 +1155,30 @@ const loadPriceHistory =
           "Unable to fetch market data right now."
         );
       } finally {
-        setLoadingTicker(
-          null
-        );
+        setLoadingTicker(null);
       }
     };
 
-  /* =======================================================
+  /* =========================================================
      Refresh all
-     ======================================================= */
+     ========================================================= */
 
   const refreshAllStocks =
     async () => {
       if (
-        watchlist.length ===
-          0 ||
+        watchlist.length === 0 ||
         refreshingAll
       ) {
         return;
       }
 
-      setRefreshingAll(
-        true
-      );
-
+      setRefreshingAll(true);
       setErrorMessage("");
 
       try {
-        for (const stock of watchlist) {
+        for (
+          const stock of watchlist
+        ) {
           await fetchMarketData(
             stock.ticker
           );
@@ -1644,15 +1203,166 @@ const loadPriceHistory =
           "Some market data could not be refreshed."
         );
       } finally {
-        setRefreshingAll(
-          false
+        setRefreshingAll(false);
+      }
+    };
+
+  /* =========================================================
+     Signal history
+     ========================================================= */
+
+  const fetchSignalHistory =
+    async (stockTicker) => {
+      if (!authenticated) {
+  setAuthScreenOpen(
+    true
+  );
+
+  setAuthMode(
+    "login"
+  );
+
+  setAuthMessage(
+    "Log in to view your signal history."
+  );
+
+  return;
+}
+
+      try {
+        const response =
+          await fetch(
+            `${API_URL}/api/signals/${stockTicker}/history`,
+            {
+              headers:
+                getRequestHeaders(),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          setErrorMessage(
+            data.message ||
+              "Could not fetch signal history."
+          );
+          return;
+        }
+
+        setSignalHistory(
+          (previous) => ({
+            ...previous,
+            [stockTicker]:
+              data,
+          })
+        );
+      } catch (error) {
+        console.error(
+          "Signal history error:",
+          error
+        );
+
+        setErrorMessage(
+          "Could not fetch signal history."
         );
       }
     };
 
-  /* =======================================================
+  /* =========================================================
+     Feedback
+     ========================================================= */
+
+  const sendFeedback = async (
+    signalId,
+    feedback
+  ) => {
+    if (!authenticated) {
+  setAuthScreenOpen(true);
+  setAuthMode("login");
+  setAuthMessage(
+    "Log in to train your Nudge preferences."
+  );
+  return;
+}
+
+    try {
+      const response =
+        await fetch(
+          `${API_URL}/api/signals/${signalId}/feedback`,
+          {
+            method: "POST",
+            headers:
+              getRequestHeaders(true),
+            body: JSON.stringify({
+              feedback,
+            }),
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        setErrorMessage(
+          data.message ||
+            "Could not save feedback."
+        );
+
+        return;
+      }
+
+      setSignals(
+        (previous) => {
+          const updated = {
+            ...previous,
+          };
+
+          const tickerToRemove =
+            Object.keys(updated).find(
+              (stockTicker) =>
+                updated[
+                  stockTicker
+                ]?._id ===
+                signalId
+            );
+
+          if (tickerToRemove) {
+            delete updated[
+              tickerToRemove
+            ];
+          }
+
+          return updated;
+        }
+      );
+
+      setToast(
+        feedback === "useful"
+          ? "Thanks — Nudge will use this feedback."
+          : "Got it — we'll show fewer signals like this."
+      );
+
+      setTimeout(() => {
+        setToast("");
+      }, 2500);
+
+      await loadDashboard();
+    } catch (error) {
+      console.error(
+        "Feedback error:",
+        error
+      );
+
+      setErrorMessage(
+        "Could not save feedback."
+      );
+    }
+  };
+
+  /* =========================================================
      Remove stock
-     ======================================================= */
+     ========================================================= */
 
   const removeStock =
     async (id) => {
@@ -1697,6 +1407,7 @@ const loadPriceHistory =
         );
 
         await loadDashboard();
+
       } catch (error) {
         console.error(
           "Remove stock error:",
@@ -1709,716 +1420,270 @@ const loadPriceHistory =
       }
     };
 
-  /* =======================================================
-     Signal history
-     ======================================================= */
-
-  const fetchSignalHistory =
-    async (stockTicker) => {
-      if (!authenticated) {
-        setShowLoginReminder(
-          true
-        );
-
-        return;
-      }
-
-      try {
-        const response =
-          await fetch(
-            `${API_URL}/api/signals/${stockTicker}/history`,
-            {
-              headers:
-                getRequestHeaders(),
-            }
-          );
-
-        const data =
-          await response.json();
-
-        if (!response.ok) {
-          setErrorMessage(
-            data.message ||
-              "Could not fetch signal history."
-          );
-
-          return;
-        }
-
-        setSignalHistory(
-          (previous) => ({
-            ...previous,
-            [stockTicker]:
-              data,
-          })
-        );
-      } catch (error) {
-        console.error(
-          "Signal history error:",
-          error
-        );
-
-        setErrorMessage(
-          "Could not fetch signal history."
-        );
-      }
-    };
-
-  /* =======================================================
-     Feedback
-     ======================================================= */
-
-  const sendFeedback =
-    async (
-      signalId,
-      feedback
-    ) => {
-      if (!authenticated) {
-        setShowLoginReminder(
-          true
-        );
-
-        return;
-      }
-
-      try {
-        const response =
-          await fetch(
-            `${API_URL}/api/signals/${signalId}/feedback`,
-            {
-              method: "POST",
-              headers:
-                getRequestHeaders(
-                  true
-                ),
-              body: JSON.stringify({
-                feedback,
-              }),
-            }
-          );
-
-        const data =
-          await response.json();
-
-        if (!response.ok) {
-          setErrorMessage(
-            data.message ||
-              "Could not save feedback."
-          );
-
-          return;
-        }
-
-        setSignals(
-          (previous) => {
-            const updated = {
-              ...previous,
-            };
-
-            const tickerToRemove =
-              Object.keys(
-                updated
-              ).find(
-                (stockTicker) =>
-                  updated[
-                    stockTicker
-                  ]?._id ===
-                  signalId
-              );
-
-            if (
-              tickerToRemove
-            ) {
-              delete updated[
-                tickerToRemove
-              ];
-            }
-
-            return updated;
-          }
-        );
-
-        setToast(
-          feedback === "useful"
-            ? "Thanks — Nudge will use this feedback."
-            : "Got it — we'll show fewer signals like this."
-        );
-
-        setTimeout(() => {
-          setToast("");
-        }, 2500);
-
-        await loadDashboard();
-      } catch (error) {
-        console.error(
-          "Feedback error:",
-          error
-        );
-
-        setErrorMessage(
-          "Could not save feedback."
-        );
-      }
-    };
-
-  /* =======================================================
-     Browser notifications
-     ======================================================= */
-
-  const enableBrowserNotifications =
-    async () => {
-      if (!authenticated) {
-        setShowLoginReminder(
-          true
-        );
-
-        return false;
-      }
-
-      if (
-        !("Notification" in
-          window) ||
-        !("serviceWorker" in
-          navigator) ||
-        !("PushManager" in
-          window)
-      ) {
-        setToast(
-          "Browser notifications are not supported here."
-        );
-
-        setTimeout(() => {
-          setToast("");
-        }, 3000);
-
-        return false;
-      }
-
-      try {
-        let permission =
-          Notification.permission;
-
-        if (
-          permission !==
-          "granted"
-        ) {
-          permission =
-            await Notification.requestPermission();
-        }
-
-        if (
-          permission !==
-          "granted"
-        ) {
-          setToast(
-            "Notifications were not enabled."
-          );
-
-          setTimeout(() => {
-            setToast("");
-          }, 2500);
-
-          return false;
-        }
-
-        const registration =
-          await navigator.serviceWorker.register(
-            "/sw.js"
-          );
-
-        const keyResponse =
-          await fetch(
-            `${API_URL}/api/push/public-key`,
-            {
-              headers:
-                getRequestHeaders(),
-            }
-          );
-
-        const keyData =
-          await keyResponse.json();
-
-        if (!keyResponse.ok) {
-          throw new Error(
-            keyData.message ||
-              "Push notifications are not configured."
-          );
-        }
-
-        let subscription =
-          await registration.pushManager.getSubscription();
-
-        if (!subscription) {
-          subscription =
-            await registration.pushManager.subscribe(
-              {
-                userVisibleOnly:
-                  true,
-
-                applicationServerKey:
-                  urlBase64ToUint8Array(
-                    keyData.publicKey
-                  ),
-              }
-            );
-        }
-
-        const saveResponse =
-          await fetch(
-            `${API_URL}/api/push/subscribe`,
-            {
-              method: "POST",
-              headers:
-                getRequestHeaders(
-                  true
-                ),
-              body: JSON.stringify(
-                subscription
-              ),
-            }
-          );
-
-        const saveData =
-          await saveResponse.json();
-
-        if (!saveResponse.ok) {
-          throw new Error(
-            saveData.message ||
-              "Could not save notification subscription."
-          );
-        }
-
-        setNotificationsEnabled(
-          true
-        );
-
-        setToast(
-          "Browser notifications are enabled."
-        );
-
-        setTimeout(() => {
-          setToast("");
-        }, 2500);
-
-        return true;
-      } catch (error) {
-        console.error(
-          "Notification setup error:",
-          error
-        );
-
-        setToast(
-          "Could not enable browser notifications."
-        );
-
-        setTimeout(() => {
-          setToast("");
-        }, 3000);
-
-        return false;
-      }
-    };
-
-  /* =======================================================
-     Load alerts after login
-     ======================================================= */
-
-  const openAlertForm =
-    (stockTicker = "") => {
-      if (!authenticated) {
-        setShowLoginReminder(
-          true
-        );
-
-        return;
-      }
-
-      setAlertForm({
-        ticker:
-          stockTicker,
-        condition:
-          "below",
-        targetPrice:
-          "",
-      });
-
-      setShowAlertForm(
-        true
-      );
-    };
-
-  /* =======================================================
-     Create alert
-     ======================================================= */
-
-  const createAlert =
-    async (event) => {
-      event.preventDefault();
-
-      if (!authenticated) {
-        setShowLoginReminder(
-          true
-        );
-
-        return;
-      }
-
-      setAlertLoading(
-        true
-      );
-
-      setErrorMessage("");
-
-      try {
-        /*
-         * A price alert requires
-         * browser push to be ready.
-         */
-        const pushReady =
-          notificationsEnabled ||
-          (await enableBrowserNotifications());
-
-        if (!pushReady) {
-          setErrorMessage(
-            "Enable browser notifications before creating a price alert."
-          );
-
-          return;
-        }
-
-        const cleanTicker =
-          alertForm.ticker
-            .trim()
-            .toUpperCase();
-
-        const targetPrice =
-          Number(
-            alertForm.targetPrice
-          );
-
-        if (!cleanTicker) {
-          setErrorMessage(
-            "Select a stock."
-          );
-
-          return;
-        }
-
-        if (
-          !Number.isFinite(
-            targetPrice
-          ) ||
-          targetPrice <= 0
-        ) {
-          setErrorMessage(
-            "Enter a valid target price."
-          );
-
-          return;
-        }
-
-        const response =
-          await fetch(
-            `${API_URL}/api/alerts`,
-            {
-              method: "POST",
-              headers:
-                getRequestHeaders(
-                  true
-                ),
-              body: JSON.stringify({
-                ticker:
-                  cleanTicker,
-
-                condition:
-                  alertForm.condition,
-
-                targetPrice,
-              }),
-            }
-          );
-
-        const data =
-          await response.json();
-
-        if (!response.ok) {
-          setErrorMessage(
-            data.message ||
-              "Could not create price alert."
-          );
-
-          return;
-        }
-
-        setAlerts(
-          (previous) => [
-            data,
-            ...previous,
-          ]
-        );
-
-        setShowAlertForm(
-          false
-        );
-
-        setAlertForm({
-          ticker: "",
-          condition:
-            "below",
-          targetPrice:
-            "",
-        });
-
-        setToast(
-          "Price alert created."
-        );
-
-        setTimeout(() => {
-          setToast("");
-        }, 2500);
-      } catch (error) {
-        console.error(
-          "Create alert error:",
-          error
-        );
-
-        setErrorMessage(
-          "Could not create price alert."
-        );
-      } finally {
-        setAlertLoading(
-          false
-        );
-      }
-    };
-
-  /* =======================================================
-     Toggle alert
-     ======================================================= */
-
-  const toggleAlert =
-    async (id) => {
-      try {
-        const response =
-          await fetch(
-            `${API_URL}/api/alerts/${id}/toggle`,
-            {
-              method: "PATCH",
-              headers:
-                getRequestHeaders(),
-            }
-          );
-
-        const data =
-          await response.json();
-
-        if (!response.ok) {
-          setErrorMessage(
-            data.message ||
-              "Could not update alert."
-          );
-
-          return;
-        }
-
-        setAlerts(
-          (previous) =>
-            previous.map(
-              (alert) =>
-                alert._id === id
-                  ? data
-                  : alert
-            )
-        );
-      } catch (error) {
-        console.error(
-          "Toggle alert error:",
-          error
-        );
-
-        setErrorMessage(
-          "Could not update alert."
-        );
-      }
-    };
-
-  /* =======================================================
-     Delete alert
-     ======================================================= */
-
-  const deleteAlert =
-    async (id) => {
-      try {
-        const response =
-          await fetch(
-            `${API_URL}/api/alerts/${id}`,
-            {
-              method: "DELETE",
-              headers:
-                getRequestHeaders(),
-            }
-          );
-
-        const data =
-          await response.json();
-
-        if (!response.ok) {
-          setErrorMessage(
-            data.message ||
-              "Could not remove alert."
-          );
-
-          return;
-        }
-
-        setAlerts(
-          (previous) =>
-            previous.filter(
-              (alert) =>
-                alert._id !== id
-            )
-        );
-
-        setToast(
-          "Alert removed."
-        );
-
-        setTimeout(() => {
-          setToast("");
-        }, 2000);
-      } catch (error) {
-        console.error(
-          "Delete alert error:",
-          error
-        );
-      }
-    };
-
-  /* =======================================================
-     Auth loading
-     ======================================================= */
+  /* =========================================================
+     Render
+     ========================================================= */
 
   if (!authReady) {
     return (
-      <div className="auth-page">
-        <div className="auth-card auth-loading">
-          <div className="logo-mark">
-            N
-          </div>
-
-          <h1>Nudge</h1>
-
-          <p className="auth-note">
-            Checking your account...
-          </p>
+      <div className="app">
+        <div className="empty-state">
+          <div className="empty-icon">✦</div>
+          <h3>Loading Nudge</h3>
+          <p>Restoring your session...</p>
         </div>
       </div>
     );
   }
 
-  /* =======================================================
-     Authentication screen
-     ======================================================= */
+if (authScreenOpen && !authenticated) {
+  return (
+    <div className="auth-page">
+      <div className="auth-card">
 
-  if (
-    !authenticated &&
-    !guestMode
-  ) {
-    return (
-      <AuthScreen
-        mode={authMode}
-        setMode={(mode) => {
-          setAuthMode(mode);
-          setAuthError("");
-        }}
-        email={email}
-        setEmail={setEmail}
-        password={password}
-        setPassword={setPassword}
-        onSubmit={handleAuth}
-        onGuest={continueAsGuest}
-        loading={authLoading}
-        error={authError}
-      />
-    );
-  }
+        <div className="auth-logo">
+          <div className="auth-logo-mark">
+            N
+          </div>
 
-  /* =======================================================
-     Main application
-     ======================================================= */
+          <span>Nudge</span>
+        </div>
+
+        <div className="auth-header">
+          <h2>
+            {authMode === "login"
+              ? "Welcome back"
+              : "Create your account"}
+          </h2>
+
+          <p>
+            {authMode === "login"
+              ? "Log in to save your watchlist and personalize Nudge."
+              : "Create an account to save your Nudge experience."}
+          </p>
+        </div>
+
+        <form
+          className="auth-form"
+          onSubmit={submitAuth}
+        >
+          <div className="auth-field">
+            <label htmlFor="auth-email">
+              Email
+            </label>
+
+            <input
+              id="auth-email"
+              type="email"
+              placeholder="you@example.com"
+              value={authEmail}
+              onChange={(event) =>
+                setAuthEmail(
+                  event.target.value
+                )
+              }
+              autoComplete="email"
+            />
+          </div>
+
+          <div className="auth-field">
+            <label htmlFor="auth-password">
+              Password
+            </label>
+
+            <input
+              id="auth-password"
+              type="password"
+              placeholder="Enter your password"
+              value={authPassword}
+              onChange={(event) =>
+                setAuthPassword(
+                  event.target.value
+                )
+              }
+              autoComplete={
+                authMode === "login"
+                  ? "current-password"
+                  : "new-password"
+              }
+            />
+          </div>
+
+          {authMessage && (
+            <div className="auth-error">
+              {authMessage}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            className="auth-primary-button"
+            disabled={authLoading}
+          >
+            {authLoading
+              ? "Please wait..."
+              : authMode === "login"
+              ? "Log in"
+              : "Create account"}
+          </button>
+        </form>
+
+        <button
+          type="button"
+          className="auth-secondary-button"
+          onClick={() => {
+            setAuthMode(
+              (previous) =>
+                previous === "login"
+                  ? "register"
+                  : "login"
+            );
+
+            setAuthMessage("");
+          }}
+        >
+          {authMode === "login"
+            ? "Create an account instead"
+            : "I already have an account"}
+        </button>
+
+        <div className="auth-divider">
+          <span>or</span>
+        </div>
+
+        <button
+          type="button"
+          className="auth-guest-button"
+          onClick={() =>
+            setGuestPromptOpen(true)
+          }
+        >
+          Continue without logging in
+        </button>
+
+        <p className="auth-footer">
+          You can use Nudge as a guest anytime.
+        </p>
+      </div>
+
+      {guestPromptOpen && (
+        <div className="guest-overlay">
+          <div className="guest-modal">
+            <div className="guest-modal-icon">
+              N
+            </div>
+
+            <h3>
+              For a better Nudge experience
+            </h3>
+
+            <p>
+              Log in to keep your watchlist,
+              personalize signals, and save
+              your Nudge activity.
+            </p>
+
+            <div className="guest-modal-actions">
+              <button
+                type="button"
+                className="auth-guest-button"
+                onClick={
+                  continueAsGuest
+                }
+              >
+                Continue as guest
+              </button>
+
+              <button
+                type="button"
+                className="auth-primary-button"
+                onClick={() => {
+                  setGuestPromptOpen(
+                    false
+                  );
+
+                  setAuthMode("login");
+                  setAuthMessage("");
+                }}
+              >
+                Log in
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
   return (
     <div className="app">
-      {/* Toast */}
       {toast && (
         <div className="toast">
           {toast}
         </div>
       )}
 
-      {/* Login reminder */}
-      {guestMode &&
-        showLoginReminder && (
-          <LoginReminder
-            onLogin={
-              openLogin
-            }
-            onDismiss={() =>
-              setShowLoginReminder(
-                false
-              )
-            }
-          />
-        )}
-
-      {/* ===================================================
-          Header
-          =================================================== */}
+      {/* HEADER */}
 
       <header className="header">
         <div className="header-top">
           <div className="logo">
-            <div className="logo-mark">
-              N
-            </div>
+            <div className="logo-mark">N</div>
 
             <div>
               <h1>Nudge</h1>
 
               <p className="subtitle">
-                Track what matters.
-                Know what changed.
+                Track what matters. Know what changed.
               </p>
             </div>
           </div>
 
-          <div className="header-actions">
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
             <div className="market-pill">
               ● Market data
             </div>
 
             {authenticated ? (
-              <button
-                type="button"
-                className="account-button"
-                onClick={logout}
-              >
-                <span>
-                  {user?.email ||
-                    "Account"}
+              <>
+                <span
+                  style={{
+                    fontSize: "10px",
+                    color: "#77717c",
+                    maxWidth: "180px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                  title={user?.email || ""}
+                >
+                  {user?.email}
                 </span>
 
-                <small>
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={logout}
+                >
                   Log out
-                </small>
-              </button>
+                </button>
+              </>
             ) : (
               <button
                 type="button"
-                className="account-button"
-                onClick={
-                  openLogin
-                }
+                className="secondary-action"
+                onClick={() => {
+                  setAuthMode("login");
+                  setAuthMessage("");
+                  setAuthScreenOpen(true);
+                }}
               >
                 Log in
               </button>
@@ -2427,51 +1692,7 @@ const loadPriceHistory =
         </div>
       </header>
 
-      {/* ===================================================
-          Guest / account strip
-          =================================================== */}
-
-      {authenticated ? (
-        <div className="account-strip">
-          <span>
-            Signed in as{" "}
-            <strong>
-              {user?.email}
-            </strong>
-          </span>
-
-          <button
-            type="button"
-            onClick={
-              enableBrowserNotifications
-            }
-          >
-            {notificationsEnabled
-              ? "✓ Notifications enabled"
-              : "Enable notifications"}
-          </button>
-        </div>
-      ) : (
-        <div className="guest-strip">
-          <span>
-            You're using Nudge
-            as a guest.
-          </span>
-
-          <button
-            type="button"
-            onClick={
-              openLogin
-            }
-          >
-            Log in to save progress
-          </button>
-        </div>
-      )}
-
-      {/* ===================================================
-          Add stock
-          =================================================== */}
+      {/* ADD STOCK */}
 
       <section className="add-section">
         <form
@@ -2482,14 +1703,19 @@ const loadPriceHistory =
             type="text"
             placeholder="Enter ticker e.g. RELIANCE"
             value={ticker}
-            onChange={(event) =>
+            onChange={(
+              event
+            ) =>
               setTicker(
-                event.target.value
+                event.target
+                  .value
               )
             }
           />
 
-          <button type="submit">
+          <button
+            type="submit"
+          >
             Add Stock
           </button>
         </form>
@@ -2501,9 +1727,7 @@ const loadPriceHistory =
         )}
       </section>
 
-      {/* ===================================================
-          Market Overview
-          =================================================== */}
+      {/* MARKET OVERVIEW */}
 
       <section className="dashboard-section">
         <div className="section-heading">
@@ -2513,8 +1737,7 @@ const loadPriceHistory =
             </h2>
 
             <p>
-              A quick look at the
-              broader market.
+              A quick look at the broader market.
             </p>
           </div>
         </div>
@@ -2545,7 +1768,8 @@ const loadPriceHistory =
                       ? market.price.toLocaleString(
                           "en-IN",
                           {
-                            maximumFractionDigits: 2,
+                            maximumFractionDigits:
+                              2,
                           }
                         )
                       : "Unavailable"}
@@ -2561,10 +1785,16 @@ const loadPriceHistory =
                         : "market-change negative"
                     }
                   >
-                    {market.changePercent !== null
-  ? `${positive ? "+" : ""}${market.changePercent.toFixed(2)}%`
-  : "Data unavailable"}
-
+                    {market.changePercent !==
+                    null
+                      ? `${
+                          positive
+                            ? "+"
+                            : ""
+                        }${market.changePercent.toFixed(
+                          2
+                        )}%`
+                      : "Data unavailable"}
                   </span>
                 </div>
               );
@@ -2573,9 +1803,7 @@ const loadPriceHistory =
         </div>
       </section>
 
-      {/* ===================================================
-          Today's Nudges
-          =================================================== */}
+      {/* TODAY'S NUDGES */}
 
       <section className="dashboard-section">
         <div className="section-heading">
@@ -2585,8 +1813,7 @@ const loadPriceHistory =
             </h2>
 
             <p>
-              Things that may
-              deserve your attention.
+              Things that may deserve your attention.
             </p>
           </div>
 
@@ -2602,8 +1829,7 @@ const loadPriceHistory =
         {dashboard.nudges.length ===
         0 ? (
           <div className="nudges-empty">
-            Nothing meaningful needs
-            your attention right now.
+            Nothing meaningful needs your attention right now.
           </div>
         ) : (
           <div className="nudge-list">
@@ -2620,17 +1846,21 @@ const loadPriceHistory =
                       .getElementById(
                         `stock-${nudge.ticker}`
                       )
-                      ?.scrollIntoView({
-                        behavior:
-                          "smooth",
-                        block:
-                          "center",
-                      });
+                      ?.scrollIntoView(
+                        {
+                          behavior:
+                            "smooth",
+                          block:
+                            "center",
+                        }
+                      );
                   }}
                 >
                   <div className="nudge-main">
                     <strong>
-                      {nudge.ticker}
+                      {
+                        nudge.ticker
+                      }
                     </strong>
 
                     <span>
@@ -2646,7 +1876,9 @@ const loadPriceHistory =
                   </div>
 
                   <p className="nudge-reason">
-                    {nudge.reason}
+                    {
+                      nudge.reason
+                    }
                   </p>
 
                   {nudge.contextText && (
@@ -2697,9 +1929,7 @@ const loadPriceHistory =
         )}
       </section>
 
-      {/* ===================================================
-          Watchlist Summary
-          =================================================== */}
+      {/* WATCHLIST SUMMARY */}
 
       <section className="dashboard-section">
         <div className="section-heading">
@@ -2709,8 +1939,7 @@ const loadPriceHistory =
             </h2>
 
             <p>
-              See what changed
-              without the noise.
+              See what changed without the noise.
             </p>
           </div>
 
@@ -2723,7 +1952,8 @@ const loadPriceHistory =
               }{" "}
               {dashboard
                 .watchlistSummary
-                .total === 1
+                .total ===
+              1
                 ? "stock"
                 : "stocks"}
             </span>
@@ -2842,257 +2072,7 @@ const loadPriceHistory =
         </div>
       </section>
 
-      {/* ===================================================
-          Price Alerts
-          =================================================== */}
-
-      {authenticated && (
-        <section className="dashboard-section">
-          <div className="section-heading">
-            <div>
-              <h2>
-                Price Alerts
-              </h2>
-
-              <p>
-                Get a browser
-                notification when
-                your condition is met.
-              </p>
-            </div>
-
-            <div className="alert-heading-actions">
-              <button
-                type="button"
-                className="notification-button"
-                onClick={
-                  enableBrowserNotifications
-                }
-              >
-                {notificationsEnabled
-                  ? "✓ Notifications on"
-                  : "Enable notifications"}
-              </button>
-
-              <button
-                type="button"
-                className="refresh-all-button"
-                onClick={() =>
-                  openAlertForm()
-                }
-              >
-                + New alert
-              </button>
-            </div>
-          </div>
-
-          {showAlertForm && (
-            <form
-              className="alert-form"
-              onSubmit={
-                createAlert
-              }
-            >
-              <div className="alert-form-title">
-                Create price alert
-              </div>
-
-              <select
-                value={
-                  alertForm.ticker
-                }
-                onChange={(event) =>
-                  setAlertForm(
-                    (previous) => ({
-                      ...previous,
-                      ticker:
-                        event.target
-                          .value,
-                    })
-                  )
-                }
-                required
-              >
-                <option value="">
-                  Select a stock
-                </option>
-
-                {watchlist.map(
-                  (stock) => (
-                    <option
-                      key={
-                        stock._id
-                      }
-                      value={
-                        stock.ticker
-                      }
-                    >
-                      {
-                        stock.ticker
-                      }
-                    </option>
-                  )
-                )}
-              </select>
-
-              <select
-                value={
-                  alertForm.condition
-                }
-                onChange={(event) =>
-                  setAlertForm(
-                    (previous) => ({
-                      ...previous,
-                      condition:
-                        event.target
-                          .value,
-                    })
-                  )
-                }
-              >
-                <option value="below">
-                  Price goes below
-                </option>
-
-                <option value="above">
-                  Price goes above
-                </option>
-              </select>
-
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="Target price"
-                value={
-                  alertForm.targetPrice
-                }
-                onChange={(event) =>
-                  setAlertForm(
-                    (previous) => ({
-                      ...previous,
-                      targetPrice:
-                        event.target
-                          .value,
-                    })
-                  )
-                }
-                required
-              />
-
-              <div className="alert-form-actions">
-                <button
-                  type="submit"
-                  className="primary-action"
-                  disabled={
-                    alertLoading
-                  }
-                >
-                  {alertLoading
-                    ? "Creating..."
-                    : "Create alert"}
-                </button>
-
-                <button
-                  type="button"
-                  className="secondary-action"
-                  onClick={() =>
-                    setShowAlertForm(
-                      false
-                    )
-                  }
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          )}
-
-          {alerts.length ===
-          0 ? (
-            <div className="nudges-empty">
-              You don't have any
-              price alerts yet.
-            </div>
-          ) : (
-            <div className="alerts-list">
-              {alerts.map(
-                (alert) => (
-                  <div
-                    className="alert-item"
-                    key={
-                      alert._id
-                    }
-                  >
-                    <div>
-                      <strong>
-                        {
-                          alert.ticker
-                        }
-                      </strong>
-
-                      <span>
-                        {alert.condition ===
-                        "below"
-                          ? "Below"
-                          : "Above"}{" "}
-                        ₹
-                        {Number(
-                          alert.targetPrice
-                        ).toLocaleString(
-                          "en-IN"
-                        )}
-                      </span>
-
-                      {alert.triggeredAt && (
-                        <small className="alert-triggered">
-                          Triggered
-                        </small>
-                      )}
-                    </div>
-
-                    <div className="alert-item-actions">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          toggleAlert(
-                            alert._id
-                          )
-                        }
-                        className={
-                          alert.active
-                            ? "alert-active"
-                            : "alert-inactive"
-                        }
-                      >
-                        {alert.active
-                          ? "Active"
-                          : "Off"}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          deleteAlert(
-                            alert._id
-                          )
-                        }
-                        className="alert-remove"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                )
-              )}
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* ===================================================
-          Your Stocks
-          =================================================== */}
+      {/* WATCHLIST */}
 
       <section className="watchlist-section">
         <div className="section-heading">
@@ -3102,17 +2082,19 @@ const loadPriceHistory =
             </h2>
 
             <p>
-              Explore the stocks
-              you are following.
+              Explore the stocks you are following.
             </p>
           </div>
 
           <span className="stock-count">
             {watchlist.length}{" "}
-            {watchlist.length === 1
+            {watchlist.length ===
+            1
               ? "stock"
               : "stocks"}
           </span>
+
+          
         </div>
 
         {watchlist.length ===
@@ -3123,21 +2105,15 @@ const loadPriceHistory =
             </div>
 
             <h3>
-              Nothing on your
-              watchlist yet
+              Nothing on your watchlist yet
             </h3>
 
             <p>
-              Add a stock above
-              and Nudge will let
-              you know when
-              something meaningful
-              happens.
+              Add a stock above and Nudge will let you know when something meaningful happens.
             </p>
 
             <span className="empty-hint">
-              No noise. Just
-              useful signals.
+              No noise. Just useful signals.
             </span>
           </div>
         ) : (
@@ -3178,11 +2154,12 @@ const loadPriceHistory =
                         </h3>
 
                         <p className="stock-subtitle">
-                          {COMPANY_NAMES[
-                            stock
-                              .ticker
-                          ] ||
-                            "Tracked stock"}
+                          {
+                            COMPANY_NAMES[
+                              stock.ticker
+                            ] ||
+                              "Tracked stock"
+                          }
                         </p>
                       </div>
 
@@ -3206,9 +2183,7 @@ const loadPriceHistory =
                     {loadingTicker ===
                       stock.ticker && (
                       <div className="loading-message">
-                        Checking the
-                        latest market
-                        data...
+                        Checking the latest market data...
                       </div>
                     )}
 
@@ -3216,18 +2191,16 @@ const loadPriceHistory =
                       <div className="market-info">
                         <div className="price-row">
                           <p className="price">
-                            {data.price !==
-                            null
-                              ? `₹${Number(
-                                  data.price
-                                ).toLocaleString(
-                                  "en-IN",
-                                  {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  }
-                                )}`
-                              : "Unavailable"}
+                            ₹
+                            {data.price?.toLocaleString(
+                              "en-IN",
+                              {
+                                minimumFractionDigits:
+                                  2,
+                                maximumFractionDigits:
+                                  2,
+                              }
+                            )}
                           </p>
 
                           {data.changePercent !==
@@ -3249,9 +2222,7 @@ const loadPriceHistory =
                                 0
                                   ? "+"
                                   : ""}
-                                {Number(
-                                  data.changePercent
-                                ).toFixed(
+                                {data.changePercent.toFixed(
                                   2
                                 )}
                                 %
@@ -3262,9 +2233,7 @@ const loadPriceHistory =
                         <p className="volume">
                           Volume:{" "}
                           {data.volume
-                            ? Number(
-                                data.volume
-                              ).toLocaleString(
+                            ? data.volume.toLocaleString(
                                 "en-IN"
                               )
                             : "—"}
@@ -3272,30 +2241,20 @@ const loadPriceHistory =
 
                         {data.stale && (
                           <div className="stock-status stale-status">
-                            Data may be
-                            delayed.
-                            Showing the
-                            last available
-                            price.
+                            Data may be delayed. Showing the last available price.
                           </div>
                         )}
 
                         {data.unavailable && (
                           <div className="stock-status unavailable-status">
-                            Market data is
-                            temporarily
-                            unavailable.
+                            Market data is temporarily unavailable.
                           </div>
                         )}
 
                         {data.hasEnoughHistory ===
                           false && (
                           <div className="stock-status history-status">
-                            Not enough
-                            history yet to
-                            detect
-                            meaningful
-                            changes.
+                            Not enough history yet to detect meaningful changes.
                           </div>
                         )}
 
@@ -3310,15 +2269,11 @@ const loadPriceHistory =
                     ) : (
                       <div className="no-data">
                         <p>
-                          Market data
-                          hasn't been
-                          checked yet.
+                          Market data hasn't been checked yet.
                         </p>
 
                         <p>
-                          Check the market
-                          to see what
-                          changed.
+                          Check the market to see what changed.
                         </p>
                       </div>
                     )}
@@ -3327,22 +2282,18 @@ const loadPriceHistory =
 
                     {data && (
                       <div className="signal-wrapper">
-                        {authenticated &&
-                        signal ? (
+                        {signal ? (
                           <div
                             className={`signal signal-${signal.urgency?.toLowerCase()}`}
                           >
                             <div className="signal-top">
                               <div>
                                 <span className="signal-label">
-                                  Worth a
-                                  closer look
+                                  Worth a closer look
                                 </span>
 
                                 <h4>
-                                  Something
-                                  unusual
-                                  happened
+                                  Something unusual happened
                                 </h4>
                               </div>
 
@@ -3414,8 +2365,7 @@ const loadPriceHistory =
 
                             <div className="feedback">
                               <span>
-                                Was this
-                                useful?
+                                Was this useful?
                               </span>
 
                               <button
@@ -3443,23 +2393,69 @@ const loadPriceHistory =
                               </button>
                             </div>
                           </div>
-                        ) : authenticated ? (
+                        ) : (
                           <div className="signal signal-calm">
                             <p>
-                              ○ Nothing
-                              meaningful
-                              since you
-                              last
-                              checked.
+                              ○ Nothing meaningful since you last checked.
                             </p>
                           </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* HISTORY */}
+
+                    {showHistory[
+                      stock.ticker
+                    ] && (
+                      <div className="history">
+                        <h4>
+                          Signal History
+                        </h4>
+
+                        {!signalHistory[
+                          stock.ticker
+                        ] ||
+                        signalHistory[
+                          stock.ticker
+                        ].length ===
+                          0 ? (
+                          <p>
+                            No previous meaningful signals.
+                          </p>
                         ) : (
-                          <div className="guest-signal">
-                            Log in to
-                            personalize
-                            signals to your
-                            activity.
-                          </div>
+                          signalHistory[
+                            stock.ticker
+                          ].map(
+                            (
+                              event
+                            ) => (
+                              <div
+                                className="history-item"
+                                key={
+                                  event._id
+                                }
+                              >
+                                <strong>
+                                  {
+                                    event.ticker
+                                  }
+                                </strong>
+
+                                <p>
+                                  {
+                                    event.reason
+                                  }
+                                </p>
+
+                                <small>
+                                  {new Date(
+                                    event.createdAt
+                                  ).toLocaleString()}
+                                </small>
+                              </div>
+                            )
+                          )
                         )}
                       </div>
                     )}
@@ -3490,15 +2486,14 @@ const loadPriceHistory =
                         type="button"
                         className="secondary-action"
                         onClick={() => {
-                          if (
-                            !authenticated
-                          ) {
-                            setShowLoginReminder(
-                              true
-                            );
-
-                            return;
-                          }
+                          if (!authenticated) {
+  setAuthScreenOpen(true);
+  setAuthMode("login");
+  setAuthMessage(
+    "Log in to view your signal history."
+  );
+  return;
+}
 
                           if (
                             !signalHistory[
@@ -3515,8 +2510,7 @@ const loadPriceHistory =
                               previous
                             ) => ({
                               ...previous,
-                              [stock
-                                .ticker]:
+                              [stock.ticker]:
                                 !previous[
                                   stock
                                     .ticker
@@ -3534,18 +2528,6 @@ const loadPriceHistory =
 
                       <button
                         type="button"
-                        className="alert-action"
-                        onClick={() =>
-                          openAlertForm(
-                            stock.ticker
-                          )
-                        }
-                      >
-                        🔔 Set Alert
-                      </button>
-
-                      <button
-                        type="button"
                         className="remove-action"
                         onClick={() =>
                           removeStock(
@@ -3556,63 +2538,6 @@ const loadPriceHistory =
                         Remove
                       </button>
                     </div>
-
-                    {/* HISTORY */}
-
-                    {showHistory[
-                      stock.ticker
-                    ] && (
-                      <div className="history">
-                        <h4>
-                          Signal History
-                        </h4>
-
-                        {!signalHistory[
-                          stock.ticker
-                        ] ||
-                        signalHistory[
-                          stock.ticker
-                        ].length ===
-                          0 ? (
-                          <p>
-                            No previous
-                            meaningful
-                            signals.
-                          </p>
-                        ) : (
-                          signalHistory[
-                            stock.ticker
-                          ].map(
-                            (event) => (
-                              <div
-                                className="history-item"
-                                key={
-                                  event._id
-                                }
-                              >
-                                <strong>
-                                  {
-                                    event.ticker
-                                  }
-                                </strong>
-
-                                <p>
-                                  {
-                                    event.reason
-                                  }
-                                </p>
-
-                                <small>
-                                  {new Date(
-                                    event.createdAt
-                                  ).toLocaleString()}
-                                </small>
-                              </div>
-                            )
-                          )
-                        )}
-                      </div>
-                    )}
                   </div>
                 );
               }
@@ -3620,6 +2545,77 @@ const loadPriceHistory =
           </div>
         )}
       </section>
+
+      {/* ACTIVITY */}
+
+      {authenticated && (
+        <section className="dashboard-section activity-section">
+          <div className="section-heading">
+            <div>
+              <h2>Your Activity</h2>
+
+              <p>
+                A simple record of what you have done in Nudge.
+              </p>
+            </div>
+
+            <span className="stock-count">
+              {activity.length}{" "}
+              {activity.length === 1
+                ? "activity"
+                : "activities"}
+            </span>
+          </div>
+
+          {activity.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">
+                ✦
+              </div>
+
+              <h3>
+                No activity yet
+              </h3>
+
+              <p>
+                Your Nudge actions will appear here as you use the app.
+              </p>
+
+              <span className="empty-hint">
+                Add a stock, check the market, or give feedback to get started.
+              </span>
+            </div>
+          ) : (
+            <div className="nudge-list">
+              {activity.map((item) => (
+                <div
+                  className="nudge-card"
+                  key={item._id}
+                >
+                  <div>
+                    <strong>
+                      {item.message}
+                    </strong>
+
+                    {item.ticker && (
+                      <p>
+                        {item.ticker}
+                      </p>
+                    )}
+                  </div>
+
+                  <small>
+                    {new Date(
+                      item.createdAt
+                    ).toLocaleString()}
+                  </small>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
     </div>
   );
 }
