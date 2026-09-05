@@ -395,25 +395,28 @@ Technical Architecture
                                  │
                                  ▼
                               Nudge
-Technology Stack
+Technology Stack:
 Frontend
 React
 Vite
 JavaScript
 CSS
 SVG-based interactive price charts
+
 Backend
 Node.js
 Express.js
 REST APIs
 JWT authentication
 bcryptjs
+
 Database
 MongoDB
 Mongoose
+
 Market Data
 Yahoo Finance data source
-Stored historical market snapshots
+Stored historical market snapshot
 Deployment
 Render
 GitHub

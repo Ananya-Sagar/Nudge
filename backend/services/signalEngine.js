@@ -73,6 +73,13 @@ const calculateZScore = (currentReturn, historicalReturns) => {
   return (currentReturn - mean) / standardDeviation;
 };
 
+// Thresholds for what counts as a "meaningful" move.
+// Both the price move AND the volume have to be unusual
+// relative to the stock's own recent history before we
+// call it significant.
+const PRICE_ZSCORE_THRESHOLD = 1.1;
+const VOLUME_RATIO_THRESHOLD = 1.1;
+
 const calculateSignal = ({
   currentReturn,
   historicalReturns,
@@ -80,6 +87,7 @@ const calculateSignal = ({
   historicalVolumes,
 }) => {
   // We need enough history before making a decision.
+
   if (
     historicalReturns.length < 20 ||
     historicalVolumes.length < 20
@@ -128,10 +136,9 @@ const calculateSignal = ({
       : 0;
 
   // Factor 1: unusual price movement
-  const priceFactor = absoluteZScore >= 2;
-
-  // Factor 2: unusually high volume
-  const volumeFactor = volumeRatio >= 1.5;
+  const priceFactor = absoluteZScore >= PRICE_ZSCORE_THRESHOLD;
+  // Factor 2: unusual volume
+  const volumeFactor = volumeRatio >= VOLUME_RATIO_THRESHOLD;
 
   // We require BOTH factors to agree.
   const meaningfulChange =

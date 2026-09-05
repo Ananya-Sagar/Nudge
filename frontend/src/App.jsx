@@ -565,7 +565,29 @@ function App() {
   const [errorMessage, setErrorMessage] =
     useState("");
 
-    const [activity] = useState([]);
+  const [activity, setActivity] =
+    useState([]);
+
+  const [alerts, setAlerts] =
+    useState([]);
+
+  const [alertFormOpen, setAlertFormOpen] =
+    useState(false);
+
+  const [alertTicker, setAlertTicker] =
+    useState("");
+
+  const [alertCondition, setAlertCondition] =
+    useState("above");
+
+  const [alertTargetPrice, setAlertTargetPrice] =
+    useState("");
+
+  const [alertLoading, setAlertLoading] =
+    useState(false);
+
+  const [alertsLoading, setAlertsLoading] =
+    useState(false);
 
   const [marketData, setMarketData] =
     useState({});
@@ -606,14 +628,10 @@ function App() {
       const token = getToken();
 
       if (!token) {
-        const guestMode =
-          localStorage.getItem(GUEST_MODE_KEY) ===
-          "true";
-
         if (mounted) {
           setAuthenticated(false);
           setUser(null);
-          setAuthScreenOpen(!guestMode);
+          setAuthScreenOpen(true);
           setAuthReady(true);
         }
 
@@ -643,6 +661,7 @@ function App() {
         if (mounted) {
           setAuthenticated(true);
           setUser(data.user);
+          setAuthScreenOpen(false);
           localStorage.setItem(
             GUEST_MODE_KEY,
             "false"
@@ -658,14 +677,10 @@ function App() {
           TOKEN_KEY
         );
 
-        const guestMode =
-          localStorage.getItem(GUEST_MODE_KEY) ===
-          "true";
-
         if (mounted) {
           setAuthenticated(false);
           setUser(null);
-          setAuthScreenOpen(!guestMode);
+          setAuthScreenOpen(true);
         }
       } finally {
         if (mounted) {
@@ -716,6 +731,8 @@ function App() {
         const dashboardData =
           await dashboardResponse.json();
 
+          console.log("DASHBOARD NUDGES:", dashboardData.nudges);
+
         if (watchlistResponse.ok) {
           setWatchlist(
             Array.isArray(
@@ -761,6 +778,117 @@ function App() {
     }, [authenticated]);
 
   /* =========================================================
+     Activity + alerts
+     ========================================================= */
+
+  const loadActivity = useCallback(
+    async () => {
+      if (!authenticated) {
+        setActivity([]);
+        return;
+      }
+
+      try {
+        const response =
+          await fetch(
+            `${API_URL}/api/activity`,
+            {
+              headers:
+                getRequestHeaders(),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data.message ||
+              "Could not fetch activity."
+          );
+        }
+
+        setActivity(
+          Array.isArray(data)
+            ? data
+            : []
+        );
+      } catch (error) {
+        console.error(
+          "Activity loading error:",
+          error
+        );
+      }
+    },
+    [authenticated]
+  );
+
+  const loadAlerts = useCallback(
+    async () => {
+      if (!authenticated) {
+        setAlerts([]);
+        return;
+      }
+
+      setAlertsLoading(true);
+
+      try {
+        const response =
+          await fetch(
+            `${API_URL}/api/alerts`,
+            {
+              headers:
+                getRequestHeaders(),
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data.message ||
+              "Could not fetch alerts."
+          );
+        }
+
+        setAlerts(
+          Array.isArray(data)
+            ? data
+            : []
+        );
+      } catch (error) {
+        console.error(
+          "Alert loading error:",
+          error
+        );
+      } finally {
+        setAlertsLoading(false);
+      }
+    },
+    [authenticated]
+  );
+
+  useEffect(() => {
+    if (!authenticated) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void loadActivity();
+      void loadAlerts();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    authenticated,
+    loadActivity,
+    loadAlerts,
+  ]);
+
+  /* =========================================================
      Guest mode
      ========================================================= */
 
@@ -773,6 +901,8 @@ function App() {
     setGuestPromptOpen(false);
     setAuthScreenOpen(false);
     setAuthMessage("");
+    setActivity([]);
+    setAlerts([]);
   };
 
   /* =========================================================
@@ -907,6 +1037,8 @@ const submitAuth = async (event) => {
      * Reload the dashboard ONLY after migration.
      */
     await loadDashboard();
+    await loadActivity();
+    await loadAlerts();
 
     setToast(
       authMode === "login"
@@ -942,6 +1074,8 @@ const submitAuth = async (event) => {
 
     setAuthenticated(false);
     setUser(null);
+    setActivity([]);
+    setAlerts([]);
     setAuthScreenOpen(true);
     setGuestPromptOpen(false);
 
@@ -1050,6 +1184,8 @@ const submitAuth = async (event) => {
 
         const data =
           await response.json();
+                  console.log("MARKET DATA DEBUG:", data);   // ← TEMPORARY, remove after debugging
+
 
         if (!response.ok) {
           setErrorMessage(
@@ -1145,6 +1281,10 @@ const submitAuth = async (event) => {
 
         await loadDashboard();
 
+        if (authenticated) {
+          await loadActivity();
+          await loadAlerts();
+        }
 
       } catch (error) {
         console.error(
@@ -1349,6 +1489,7 @@ const submitAuth = async (event) => {
       }, 2500);
 
       await loadDashboard();
+      await loadActivity();
     } catch (error) {
       console.error(
         "Feedback error:",
@@ -1408,6 +1549,7 @@ const submitAuth = async (event) => {
         );
 
         await loadDashboard();
+        await loadActivity();
 
       } catch (error) {
         console.error(
@@ -1420,6 +1562,206 @@ const submitAuth = async (event) => {
         );
       }
     };
+
+  /* =========================================================
+     Alerts
+     ========================================================= */
+
+  const createAlert = async (event) => {
+    event.preventDefault();
+
+    if (!authenticated) {
+      setAuthMode("login");
+      setAuthMessage("Log in to create price alerts.");
+      setAuthScreenOpen(true);
+      return;
+    }
+
+    const targetPrice =
+      Number(alertTargetPrice);
+
+    if (!alertTicker) {
+      setErrorMessage("Choose a stock for the alert.");
+      return;
+    }
+
+    if (
+      !Number.isFinite(targetPrice) ||
+      targetPrice <= 0
+    ) {
+      setErrorMessage("Enter a valid target price.");
+      return;
+    }
+
+    setAlertLoading(true);
+    setErrorMessage("");
+
+    try {
+      const response =
+        await fetch(
+          `${API_URL}/api/alerts`,
+          {
+            method: "POST",
+            headers:
+              getRequestHeaders(true),
+            body: JSON.stringify({
+              ticker:
+                alertTicker,
+              condition:
+                alertCondition,
+              targetPrice,
+            }),
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Could not create price alert."
+        );
+      }
+
+      setAlerts((previous) => [
+        data,
+        ...previous.filter(
+          (alert) =>
+            alert._id !== data._id
+        ),
+      ]);
+
+      setAlertTicker("");
+      setAlertCondition("above");
+      setAlertTargetPrice("");
+      setAlertFormOpen(false);
+
+      setToast(
+        `${data.ticker} alert created.`
+      );
+
+      setTimeout(() => {
+        setToast("");
+      }, 2500);
+
+      await loadActivity();
+    } catch (error) {
+      console.error(
+        "Create alert error:",
+        error
+      );
+
+      setErrorMessage(
+        error.message ||
+          "Could not create price alert."
+      );
+    } finally {
+      setAlertLoading(false);
+    }
+  };
+
+  const toggleAlert = async (alertId) => {
+    try {
+      const response =
+        await fetch(
+          `${API_URL}/api/alerts/${alertId}/toggle`,
+          {
+            method: "PATCH",
+            headers:
+              getRequestHeaders(true),
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Could not update alert."
+        );
+      }
+
+      setAlerts((previous) =>
+        previous.map((alert) =>
+          alert._id === alertId
+            ? data
+            : alert
+        )
+      );
+
+      await loadActivity();
+    } catch (error) {
+      console.error(
+        "Toggle alert error:",
+        error
+      );
+
+      setErrorMessage(
+        error.message ||
+          "Could not update alert."
+      );
+    }
+  };
+
+  const deleteAlert = async (alertId) => {
+    const confirmed =
+      window.confirm(
+        "Remove this price alert?"
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const response =
+        await fetch(
+          `${API_URL}/api/alerts/${alertId}`,
+          {
+            method: "DELETE",
+            headers:
+              getRequestHeaders(),
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Could not remove alert."
+        );
+      }
+
+      setAlerts((previous) =>
+        previous.filter(
+          (alert) =>
+            alert._id !== alertId
+        )
+      );
+
+      await loadActivity();
+
+      setToast("Price alert removed.");
+
+      setTimeout(() => {
+        setToast("");
+      }, 2500);
+    } catch (error) {
+      console.error(
+        "Delete alert error:",
+        error
+      );
+
+      setErrorMessage(
+        error.message ||
+          "Could not remove alert."
+      );
+    }
+  };
 
   /* =========================================================
      Render
@@ -1641,28 +1983,16 @@ if (authScreenOpen && !authenticated) {
             </div>
           </div>
 
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
+          <div className="header-actions">
             <div className="market-pill">
-              ● Market data
+              <span className="market-pill-dot" />
+              Market data
             </div>
 
             {authenticated ? (
               <>
                 <span
-                  style={{
-                    fontSize: "10px",
-                    color: "#77717c",
-                    maxWidth: "180px",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
+                  className="user-email"
                   title={user?.email || ""}
                 >
                   {user?.email}
@@ -1692,6 +2022,64 @@ if (authScreenOpen && !authenticated) {
           </div>
         </div>
       </header>
+
+      <div className="app-layout">
+        <aside className="sidebar">
+          <nav className="sidebar-nav">
+            <a href="#overview" className="sidebar-link">
+              <span className="sidebar-icon">◎</span>
+              <span>Overview</span>
+            </a>
+
+            <a href="#nudges" className="sidebar-link">
+              <span className="sidebar-icon">✦</span>
+              <span>Nudges</span>
+            </a>
+
+            <a href="#summary" className="sidebar-link">
+              <span className="sidebar-icon">☰</span>
+              <span>Summary</span>
+            </a>
+
+            <a href="#stocks" className="sidebar-link">
+              <span className="sidebar-icon">▤</span>
+              <span>Your Stocks</span>
+            </a>
+
+            <a href="#alerts" className="sidebar-link">
+              <span className="sidebar-icon">⏰</span>
+              <span>Alerts</span>
+            </a>
+
+            {authenticated && (
+              <a href="#activity" className="sidebar-link">
+                <span className="sidebar-icon">◷</span>
+                <span>Activity</span>
+              </a>
+            )}
+          </nav>
+
+          <div className="sidebar-footer">
+            {authenticated ? (
+              <div className="sidebar-user">
+                <div className="sidebar-user-avatar">
+                  {(user?.email || "?").charAt(0).toUpperCase()}
+                </div>
+
+                <span title={user?.email || ""}>
+                  {user?.email}
+                </span>
+              </div>
+            ) : (
+              <div className="sidebar-guest">
+                <span className="sidebar-guest-dot" />
+                Guest mode
+              </div>
+            )}
+          </div>
+        </aside>
+
+        <main className="main-content">
 
       {/* ADD STOCK */}
 
@@ -1730,7 +2118,7 @@ if (authScreenOpen && !authenticated) {
 
       {/* MARKET OVERVIEW */}
 
-      <section className="dashboard-section">
+      <section className="dashboard-section" id="overview">
         <div className="section-heading">
           <div>
             <h2>
@@ -1806,7 +2194,7 @@ if (authScreenOpen && !authenticated) {
 
       {/* TODAY'S NUDGES */}
 
-      <section className="dashboard-section">
+      <section className="dashboard-section" id="nudges">
         <div className="section-heading">
           <div>
             <h2>
@@ -1923,6 +2311,40 @@ if (authScreenOpen && !authenticated) {
                       }
                     </div>
                   )}
+                  {nudge.signalId && (
+  <div
+    className="nudge-feedback"
+    onClick={(event) =>
+      event.stopPropagation()
+    }
+  >
+    <span>Was this useful?</span>
+
+    <button
+      type="button"
+      onClick={() =>
+        sendFeedback(
+          nudge.signalId,
+          "useful"
+        )
+      }
+    >
+      ✓ Useful
+    </button>
+
+    <button
+      type="button"
+      onClick={() =>
+        sendFeedback(
+          nudge.signalId,
+          "not_for_me"
+        )
+      }
+    >
+      Not useful
+    </button>
+  </div>
+)}
                 </button>
               )
             )}
@@ -1932,7 +2354,7 @@ if (authScreenOpen && !authenticated) {
 
       {/* WATCHLIST SUMMARY */}
 
-      <section className="dashboard-section">
+      <section className="dashboard-section" id="summary">
         <div className="section-heading">
           <div>
             <h2>
@@ -2075,7 +2497,7 @@ if (authScreenOpen && !authenticated) {
 
       {/* WATCHLIST */}
 
-      <section className="watchlist-section">
+      <section className="watchlist-section" id="stocks">
         <div className="section-heading">
           <div>
             <h2>
@@ -2547,10 +2969,228 @@ if (authScreenOpen && !authenticated) {
         )}
       </section>
 
+      {/* ALERTS */}
+
+      <section className="dashboard-section alert-section" id="alerts">
+        <div className="section-heading">
+          <div>
+            <h2>Price Alerts</h2>
+            <p>
+              Set a price level and Nudge will flag it when you check the market.
+            </p>
+          </div>
+
+          <div className="alert-heading-actions">
+            <span className="stock-count">
+              {alerts.length} {alerts.length === 1 ? "alert" : "alerts"}
+            </span>
+
+            {authenticated && (
+              <button
+                type="button"
+                className="alert-action"
+                onClick={() => {
+                  setErrorMessage("");
+                  setAlertFormOpen(
+                    (previous) => !previous
+                  );
+                }}
+              >
+                {alertFormOpen
+                  ? "Close"
+                  : "Create alert"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {!authenticated ? (
+          <div className="nudges-empty">
+            Log in to create and manage price alerts.
+          </div>
+        ) : (
+          <>
+            {alertFormOpen && (
+              <form
+                className="alert-form"
+                onSubmit={createAlert}
+              >
+                <div className="alert-form-title">
+                  Create a price alert
+                </div>
+
+                <select
+                  value={alertTicker}
+                  onChange={(event) =>
+                    setAlertTicker(
+                      event.target.value
+                    )
+                  }
+                >
+                  <option value="">
+                    Choose stock
+                  </option>
+                  {watchlist.map((stock) => (
+                    <option
+                      key={stock._id}
+                      value={stock.ticker}
+                    >
+                      {stock.ticker}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={alertCondition}
+                  onChange={(event) =>
+                    setAlertCondition(
+                      event.target.value
+                    )
+                  }
+                >
+                  <option value="above">
+                    Goes above
+                  </option>
+                  <option value="below">
+                    Goes below
+                  </option>
+                </select>
+
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  placeholder="Target price"
+                  value={alertTargetPrice}
+                  onChange={(event) =>
+                    setAlertTargetPrice(
+                      event.target.value
+                    )
+                  }
+                />
+
+                <div className="alert-form-actions">
+                  <button
+                    type="submit"
+                    className="primary-action"
+                    disabled={
+                      alertLoading ||
+                      watchlist.length === 0
+                    }
+                  >
+                    {alertLoading
+                      ? "Saving..."
+                      : "Save alert"}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="secondary-action"
+                    onClick={() => {
+                      setAlertTicker("");
+                      setAlertTargetPrice("");
+                      setAlertFormOpen(false);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {alertsLoading ? (
+              <div className="loading-message">
+                Loading your alerts...
+              </div>
+            ) : alerts.length === 0 ? (
+              <div className="nudges-empty">
+                No price alerts yet. Create one above to keep an eye on a specific price level.
+              </div>
+            ) : (
+              <div className="alerts-list">
+                {alerts.map((alert) => {
+                  const triggered =
+                    Boolean(
+                      alert.triggeredAt
+                    );
+
+                  return (
+                    <div
+                      className="alert-item"
+                      key={alert._id}
+                    >
+                      <div>
+                        <strong>
+                          {alert.ticker}
+                        </strong>
+
+                        <span>
+                          {alert.condition ==="above"
+                            ? "above"
+                            : "below"}{" "}
+                          ₹
+                          {Number(
+                            alert.targetPrice
+                          ).toLocaleString(
+                            "en-IN",
+                            {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            }
+                          )}
+                        </span>
+
+                        {triggered ? (
+                          <span className="alert-triggered">
+                            Triggered
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <div className="alert-item-actions">
+                        <button
+                          type="button"
+                          className={
+                            alert.active
+                              ? "alert-active"
+                              : "alert-inactive"
+                          }
+                          onClick={() =>
+                            toggleAlert(
+                              alert._id
+                            )
+                          }
+                        >
+                          {alert.active
+                            ? "Pause"
+                            : "Enable"}
+                        </button>
+
+                        <button
+                          type="button"
+                          className="alert-remove"
+                          onClick={() =>
+                            deleteAlert(
+                              alert._id
+                            )
+                          }
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </section>
+
       {/* ACTIVITY */}
 
       {authenticated && (
-        <section className="dashboard-section activity-section">
+        <section className="dashboard-section activity-section" id="activity">
           <div className="section-heading">
             <div>
               <h2>Your Activity</h2>
@@ -2617,6 +3257,8 @@ if (authScreenOpen && !authenticated) {
         </section>
       )}
 
+        </main>
+      </div>
     </div>
   );
 }

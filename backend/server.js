@@ -1,7 +1,6 @@
-require("dotenv").config();
-
-const dns = require("dns");
-dns.setServers(["8.8.8.8"]);
+require("dotenv").config({
+  path: require("path").join(__dirname, "..", ".env"),
+});
 
 const express = require("express");
 const cors = require("cors");
@@ -42,7 +41,7 @@ const JWT_SECRET =
   process.env.JWT_SECRET ||
   "change-this-secret";
 
-const PERSONALIZATION_THRESHOLD = 1;
+const PERSONALIZATION_THRESHOLD = 0.5;
 
 app.use(
   cors({
@@ -406,9 +405,11 @@ const sendPushNotification = async (
 
 const checkAlerts = async (
   ticker,
-  price
+  price,
+  userId = null
 ) => {
   if (
+    !userId ||
     !Number.isFinite(
       Number(price)
     )
@@ -419,6 +420,7 @@ const checkAlerts = async (
   const alerts =
     await Alert.find({
       ticker,
+      userId,
       active: true,
     });
 
@@ -451,6 +453,18 @@ const checkAlerts = async (
 
     await alert.save();
 
+    await createActivity({
+      userId: alert.userId,
+      type: "alert_triggered",
+      ticker: alert.ticker,
+      message:
+        `${alert.ticker} alert triggered at ₹${Number(
+          price
+        ).toLocaleString("en-IN", {
+          maximumFractionDigits: 2,
+        })}.`,
+    });
+
     await sendPushNotification(
       alert.userId.toString(),
       `${ticker} price alert`,
@@ -475,7 +489,8 @@ const checkAlerts = async (
    ========================================================= */
 
 const getSafeMarketData = async (
-  ticker
+  ticker,
+  userId = null
 ) => {
   try {
     const marketData =
@@ -483,7 +498,8 @@ const getSafeMarketData = async (
 
     await checkAlerts(
       ticker,
-      marketData.price
+      marketData.price,
+      userId
     );
 
     return {
@@ -1242,7 +1258,8 @@ app.post(
 
       await checkAlerts(
         ticker,
-        marketData.price
+        marketData.price,
+        req.userId
       );
 
       const snapshots =
@@ -1383,11 +1400,17 @@ app.post(
         historicalVolumes.length >=
           20;
 
+      /*
+       * Same fix as /api/dashboard: don't require a prior
+       * view before a signal can ever be recorded. The first
+       * check of a stock should still surface (and log to
+       * signal history) a genuinely meaningful move.
+       */
       const shouldSurfaceSignal =
         hasEnoughHistory &&
-        Boolean(previousView) &&
         signal.urgency !== "Low" &&
-        meaningfulSinceLastView &&
+        (!previousView ||
+          meaningfulSinceLastView) &&
         personalizedScore >=
           PERSONALIZATION_THRESHOLD;
 
@@ -1417,6 +1440,15 @@ app.post(
 
             shownToUser: true,
           });
+
+        await createActivity({
+          userId,
+          type:
+            "signal_shown",
+          ticker,
+          message:
+            `${ticker}: ${signal.reason}`,
+        });
       }
 
       await createActivity({
@@ -1435,14 +1467,31 @@ app.post(
         personalizedScore,
       });
     } catch (error) {
+      /*
+       * Log the full error (including the underlying
+       * cause, which fetch() hides behind a generic
+       * "fetch failed" message) so real network/API
+       * problems are visible in the server logs.
+       */
       console.error(
         "View state error:",
-        error.message
+        error.message,
+        error.cause || ""
       );
 
-      return res.status(500).json({
+      /*
+       * Don't hard-fail just because live market data
+       * (e.g. Yahoo Finance) is temporarily unreachable.
+       * Degrade gracefully instead of throwing a 500.
+       */
+      return res.status(200).json({
+        viewState: null,
+        signalEvent: null,
+        hasEnoughHistory: false,
+        personalizedScore: 0,
+        stale: true,
         message:
-          "Failed to update view state.",
+          "Live market data is temporarily unavailable, so this check could not be personalized.",
       });
     }
   }
@@ -2231,7 +2280,10 @@ app.get(
         try {
           const marketData =
             await getSafeMarketData(
-              ticker
+              ticker,
+              req.isAuthenticated
+                ? userId
+                : null
             );
 
           const hasLivePrice =
@@ -2443,48 +2495,46 @@ app.get(
               interestWeight
             );
 
+          /*
+           * A signal can surface either the FIRST time we
+           * ever check a stock (nothing to compare against
+           * yet, so we trust the signal engine's own
+           * "is this unusual?" judgment), OR on a later
+           * check if something has meaningfully changed
+           * since the last time the user looked. Previously
+           * this required BOTH a prior view AND a fresh move
+           * since that view, which meant a nudge could never
+           * appear on the very first check of any stock.
+           */
+
           const shouldSurface =
             req.isAuthenticated &&
             !stale &&
             !unavailable &&
             hasEnoughHistory &&
-            Boolean(
-              previousView
-            ) &&
-            signal.urgency !==
-              "Low" &&
-            meaningfulSinceLastView &&
+            signal.urgency !== "Low" &&
             personalizedScore >=
               PERSONALIZATION_THRESHOLD;
 
-          if (
-            shouldSurface
-          ) {
+          if (shouldSurface) {
             const marketContext =
-              await getMarketContext(
-                ticker
-              );
+              await getMarketContext(ticker);
 
             const stockChange =
-              Number(
-                changePercent
-              );
+              Number(changePercent);
 
             const contextChange =
               Number(
-                marketContext?.changePercent ??
-                  0
+                marketContext?.changePercent ?? 0
               );
 
             const relativeDifference =
-              stockChange -
-              contextChange;
+              stockChange - contextChange;
 
             const contextText =
               marketContext
                 ? `${ticker} moved ${
-                    stockChange >=
-                    0
+                    stockChange >= 0
                       ? "+"
                       : ""
                   }${stockChange.toFixed(
@@ -2492,8 +2542,7 @@ app.get(
                   )}%, while ${
                     marketContext.name
                   } moved ${
-                    contextChange >=
-                    0
+                    contextChange >= 0
                       ? "+"
                       : ""
                   }${contextChange.toFixed(
@@ -2509,8 +2558,7 @@ app.get(
               ) >= 1
             ) {
               suggestion =
-                relativeDifference >
-                0
+                relativeDifference > 0
                   ? "The stock is moving noticeably more than its broader market context. It may be worth a closer look."
                   : "The stock is moving noticeably more than its broader market context on the downside. It may be worth a closer look.";
             } else {
@@ -2526,14 +2574,11 @@ app.get(
 
               changePercent:
                 Number(
-                  changePercent.toFixed(
-                    2
-                  )
+                  changePercent.toFixed(2)
                 ),
 
               magnitude:
-                marketData.previousClose >
-                0
+                marketData.previousClose > 0
                   ? Number(
                       Math.abs(
                         (
@@ -2606,7 +2651,8 @@ app.get(
             changePercent:
               null,
 
-            stale: true,
+            stale:
+              true,
 
             unavailable:
               !latestSnapshot,
@@ -2660,7 +2706,6 @@ app.get(
     }
   }
 );
-
 /* =========================================================
    Health check
    ========================================================= */

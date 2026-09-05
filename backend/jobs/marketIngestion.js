@@ -17,6 +17,17 @@ const yahooFinance =
   new YahooFinance();
 
 /* =========================================================
+   Small helper: pause between Yahoo calls so we don't
+   get rate-limited by hitting their endpoint in a burst.
+   ========================================================= */
+
+const sleep = (ms) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+// Delay between each ticker's Yahoo call during ingestion.
+const YAHOO_CALL_DELAY_MS = 1200;
+
+/* =========================================================
    Market indices
    ========================================================= */
 
@@ -553,6 +564,10 @@ const runMarketIngestion =
             error.message
           );
         }
+
+        // Pause before the next ticker's Yahoo call so we
+        // don't burn through the rate limit in one go.
+        await sleep(YAHOO_CALL_DELAY_MS);
       }
 
       /* -----------------------------------------------------
@@ -563,6 +578,8 @@ const runMarketIngestion =
         await saveIndexSnapshot(
           index
         );
+
+        await sleep(YAHOO_CALL_DELAY_MS);
       }
 
       console.log(

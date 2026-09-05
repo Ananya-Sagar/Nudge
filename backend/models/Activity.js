@@ -16,6 +16,7 @@ const activitySchema = new mongoose.Schema(
         "market_checked",
         "alert_created",
         "alert_removed",
+        "alert_triggered",
         "feedback_given",
         "login",
       ],
