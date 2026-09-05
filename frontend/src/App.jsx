@@ -531,7 +531,7 @@ function App() {
     useState(null);
 
   const [authScreenOpen, setAuthScreenOpen] =
-    useState(false);
+    useState(true);
 
   const [guestPromptOpen, setGuestPromptOpen] =
     useState(false);
@@ -560,6 +560,7 @@ function App() {
 
   const [ticker, setTicker] =
     useState("");
+
 
   const [errorMessage, setErrorMessage] =
     useState("");
